@@ -1,0 +1,22 @@
+{
+  "name": "visualizer",
+  "owner": {
+    "name": "Kyle Kennedy"
+  },
+  "metadata": {
+    "description": "Single-plugin marketplace for visualizer."
+  },
+  "plugins": [
+    {
+      "name": "visualizer",
+      "source": "./",
+      "description": "Architecture diagrams that stay current: a JSON model of the repo rendered as GitHub-native Mermaid, updated and archived on every run.",
+      "author": {
+        "name": "Kyle Kennedy"
+      },
+      "repository": "https://github.com/kenkyl/visualizer",
+      "license": "MIT",
+      "keywords": ["architecture", "diagram", "mermaid", "documentation"]
+    }
+  ]
+}

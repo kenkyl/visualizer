@@ -1,0 +1,521 @@
+{
+  "meta": {
+    "generator": "visualizer",
+    "schema_version": 1,
+    "model_sha": "cc1197d2648cbe58c8223011a61a9c19c5818cc6",
+    "model_date": "2026-09-29",
+    "reviewed_sha": "cc1197d2648cbe58c8223011a61a9c19c5818cc6",
+    "dirty": false,
+    "scope": ".",
+    "detail": "container",
+    "readme": {
+      "embed": true,
+      "path": "README.md",
+      "placement": "before:Quick start"
+    },
+    "notes": []
+  },
+  "system": {
+    "name": "arcade-test",
+    "summary": "A step-by-step walkthrough of Arcade.dev, in which Python scripts and Claude act on a user's GitHub account through Arcade. Claude chooses the tools and writes their arguments, and Arcade runs each one as that user after a one-time GitHub sign-in. Custom tools in my_server are deployed to Arcade Cloud, and Claude Code can use the same tools through an MCP Gateway. Step 8 adds per-user conversation memory in Redis, running in Docker on your machine.",
+    "highlights": [
+      "OAuth tokens never leave Arcade: neither this code nor Claude ever sees one.",
+      "Arcade stores every sign-in against a `user_id`, so one user can't borrow another's GitHub access.",
+      "The code holds just two API keys, read from `.env`: one for Arcade and one for Anthropic.",
+      "Redis has no password, so `compose.yaml` binds it to 127.0.0.1 only.",
+      "The project's own GitHub App (`kenkyl-github`) overrides Arcade's default, so every GitHub tool signs in through it."
+    ]
+  },
+  "boundaries": [
+    {
+      "id": "local",
+      "name": "Your machine",
+      "kind": "local"
+    },
+    {
+      "id": "docker",
+      "name": "Docker",
+      "kind": "container",
+      "parent": "local"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "kind": "saas"
+    },
+    {
+      "id": "arcade",
+      "name": "Arcade Cloud",
+      "kind": "saas"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "kind": "saas"
+    }
+  ],
+  "components": [
+    {
+      "id": "you",
+      "name": "You",
+      "kind": "client",
+      "boundary": "local",
+      "tech": "terminal and browser",
+      "responsibility": "Runs each step, approves each one-time GitHub sign-in in the browser, and deploys my_server.",
+      "evidence": [
+        "README.md",
+        "doc:WALKTHROUGH.md#step-2-call-a-tool-as-a-user-uv-run-02_direct_callpy"
+      ]
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "kind": "client",
+      "boundary": "local",
+      "tech": "MCP client",
+      "responsibility": "Acts as the agent in Step 5, using Arcade tools from the MCP Gateway with no code from this repo.",
+      "evidence": [
+        "doc:WALKTHROUGH.md#step-5-same-tools-zero-code-in-claude-code"
+      ]
+    },
+    {
+      "id": "steps",
+      "name": "Step scripts 01–08",
+      "kind": "entrypoint",
+      "boundary": "local",
+      "tech": "Python 3.13, uv",
+      "responsibility": "One runnable script per walkthrough step. Steps 5 and 6 have no script.",
+      "members": [
+        "01 explore catalog",
+        "02 direct call",
+        "03 Claude agent",
+        "04 custom tool call",
+        "07 multi-user",
+        "08 agent with memory"
+      ],
+      "evidence": [
+        "01_explore_catalog.py",
+        "02_direct_call.py",
+        "03_claude_agent.py",
+        "04_custom_tool_call.py",
+        "07_multi_user.py",
+        "08_agent_with_memory.py"
+      ]
+    },
+    {
+      "id": "agent-core",
+      "name": "Agent loop",
+      "kind": "module",
+      "boundary": "local",
+      "tech": "anthropic SDK",
+      "responsibility": "Sends the question and GitHub tool definitions to Claude, runs each tool call it asks for, and repeats up to 8 times.",
+      "evidence": [
+        "agent_core.py"
+      ]
+    },
+    {
+      "id": "arcade-helpers",
+      "name": "Arcade helpers",
+      "kind": "module",
+      "boundary": "local",
+      "tech": "arcadepy",
+      "responsibility": "Loads .env, builds the Arcade client, and wraps authorize-then-execute for a user_id.",
+      "evidence": [
+        "arcade_helpers.py"
+      ]
+    },
+    {
+      "id": "memory",
+      "name": "Conversation memory",
+      "kind": "module",
+      "boundary": "local",
+      "tech": "redis-py",
+      "responsibility": "Stores each user's questions and final answers, and replays the last 10 as context.",
+      "evidence": [
+        "memory.py",
+        "08_agent_with_memory.py"
+      ]
+    },
+    {
+      "id": "redis",
+      "name": "Redis",
+      "kind": "datastore",
+      "boundary": "docker",
+      "tech": "localhost:6379 only",
+      "responsibility": "Holds per-user conversation memory, keyed by a short internal id.",
+      "holds": [
+        {
+          "data": "Messages, one Hash each, in order via a per-user Sorted Set",
+          "lifetime": "Until cleared; kept across restarts in the redis-data volume"
+        },
+        {
+          "data": "User index (app user id → internal id) and the id counter",
+          "lifetime": "Permanent"
+        }
+      ],
+      "evidence": [
+        "compose.yaml",
+        "memory.py"
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic API",
+      "kind": "external",
+      "tech": "Messages API",
+      "responsibility": "Claude chooses which tool to call and writes its arguments. It never sees a token.",
+      "evidence": [
+        "agent_core.py",
+        "pyproject.toml"
+      ],
+      "boundary": "anthropic"
+    },
+    {
+      "id": "mcp-gateway",
+      "name": "MCP Gateway",
+      "kind": "external",
+      "boundary": "arcade",
+      "tech": "MCP over HTTP",
+      "responsibility": "Serves a chosen set of Arcade tools to Claude Code at a single URL.",
+      "evidence": [
+        "doc:WALKTHROUGH.md#step-5-same-tools-zero-code-in-claude-code"
+      ]
+    },
+    {
+      "id": "arcade-engine",
+      "name": "Arcade Engine",
+      "kind": "external",
+      "boundary": "arcade",
+      "tech": "Arcade API",
+      "responsibility": "Runs each user's OAuth sign-in, then executes tools with that user's token.",
+      "evidence": [
+        "arcade_helpers.py",
+        "doc:WALKTHROUGH.md#the-one-idea-to-hold-onto"
+      ]
+    },
+    {
+      "id": "token-vault",
+      "name": "Token vault",
+      "kind": "datastore",
+      "boundary": "arcade",
+      "tech": "managed by Arcade",
+      "responsibility": "Keeps each user's OAuth tokens, and your GitHub App's secret, out of reach of callers and the LLM.",
+      "holds": [
+        {
+          "data": "OAuth tokens for each user_id and provider",
+          "lifetime": "Until the user revokes them; Arcade refreshes them"
+        },
+        {
+          "data": "Your GitHub App's client ID and secret (provider kenkyl-github)",
+          "lifetime": "Until removed in the Arcade dashboard"
+        }
+      ],
+      "evidence": [
+        "doc:WALKTHROUGH.md#the-one-idea-to-hold-onto",
+        "doc:WALKTHROUGH.md#the-fix-bring-your-own-app"
+      ]
+    },
+    {
+      "id": "my-server",
+      "name": "my_server",
+      "kind": "service",
+      "boundary": "arcade",
+      "tech": "arcade-mcp-server, httpx",
+      "responsibility": "Your MCP server of custom tools, such as get_star_count and create_repo. Deployed with arcade deploy.",
+      "evidence": [
+        "my_server/src/my_server/server.py",
+        "my_server/pyproject.toml",
+        "doc:WALKTHROUGH.md#step-4-build-your-own-tool-optional"
+      ]
+    },
+    {
+      "id": "github-app",
+      "name": "GitHub App kenkyl-github",
+      "kind": "external",
+      "boundary": "github",
+      "tech": "Admin + Contents: write",
+      "responsibility": "Your own GitHub App. Arcade uses it for every GitHub sign-in in the project.",
+      "evidence": [
+        "my_server/src/my_server/server.py",
+        "doc:WALKTHROUGH.md#the-fix-bring-your-own-app"
+      ]
+    },
+    {
+      "id": "github-api",
+      "name": "GitHub API",
+      "kind": "external",
+      "boundary": "github",
+      "tech": "REST, api.github.com",
+      "responsibility": "Where the actions happen: starring and creating repos, reading profiles and repo data.",
+      "evidence": [
+        "02_direct_call.py",
+        "my_server/src/my_server/server.py"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "you",
+      "to": "steps",
+      "label": "runs a step",
+      "kind": "sync",
+      "step": 1
+    },
+    {
+      "from": "steps",
+      "to": "agent-core",
+      "label": "question + user_id",
+      "kind": "sync",
+      "step": 2
+    },
+    {
+      "from": "agent-core",
+      "to": "anthropic",
+      "label": "messages + tools",
+      "kind": "sync",
+      "step": 3
+    },
+    {
+      "from": "agent-core",
+      "to": "arcade-helpers",
+      "label": "tool calls Claude picks",
+      "kind": "sync",
+      "step": 4
+    },
+    {
+      "from": "arcade-helpers",
+      "to": "arcade-engine",
+      "label": "execute as user_id",
+      "kind": "sync",
+      "step": 5
+    },
+    {
+      "from": "arcade-engine",
+      "to": "token-vault",
+      "label": "token for user_id",
+      "kind": "sync",
+      "step": 6
+    },
+    {
+      "from": "arcade-engine",
+      "to": "github-api",
+      "label": "API call, user's token",
+      "kind": "sync",
+      "step": 7
+    },
+    {
+      "from": "steps",
+      "to": "arcade-helpers",
+      "label": "direct calls, no LLM",
+      "kind": "sync"
+    },
+    {
+      "from": "steps",
+      "to": "memory",
+      "label": "loads, saves turns",
+      "kind": "sync"
+    },
+    {
+      "from": "memory",
+      "to": "redis",
+      "label": "Hash + Sorted Set",
+      "kind": "sync"
+    },
+    {
+      "from": "arcade-engine",
+      "to": "github-app",
+      "label": "OAuth via your app",
+      "kind": "auth"
+    },
+    {
+      "from": "arcade-engine",
+      "to": "my-server",
+      "label": "runs tool, injects token",
+      "kind": "sync"
+    },
+    {
+      "from": "my-server",
+      "to": "github-api",
+      "label": "REST, with token",
+      "kind": "sync"
+    },
+    {
+      "from": "you",
+      "to": "claude-code",
+      "label": "asks (Step 5)",
+      "kind": "sync"
+    },
+    {
+      "from": "claude-code",
+      "to": "mcp-gateway",
+      "label": "MCP over HTTP",
+      "kind": "sync"
+    },
+    {
+      "from": "mcp-gateway",
+      "to": "arcade-engine",
+      "label": "tool calls",
+      "kind": "sync"
+    }
+  ],
+  "flows": [
+    {
+      "id": "first-tool-call",
+      "name": "First tool call, with a one-time sign-in",
+      "description": "Step 2 stars a repo as you. The first run waits for your approval on GitHub; later runs go straight to execute, because Arcade already holds the token.",
+      "steps": [
+        {
+          "from": "steps",
+          "to": "arcade-engine",
+          "msg": "tools.authorize(Github.SetStarred, user_id)",
+          "kind": "call"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "steps",
+          "msg": "pending, with a sign-in URL",
+          "kind": "return"
+        },
+        {
+          "from": "steps",
+          "to": "you",
+          "msg": "prints the sign-in link",
+          "kind": "call"
+        },
+        {
+          "from": "you",
+          "to": "github-app",
+          "msg": "approves access in the browser",
+          "kind": "call"
+        },
+        {
+          "from": "github-app",
+          "to": "arcade-engine",
+          "msg": "OAuth callback with a code",
+          "kind": "call"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "token-vault",
+          "msg": "stores the token under user_id",
+          "kind": "call"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "steps",
+          "msg": "completed (wait_for_completion returns)",
+          "kind": "return"
+        },
+        {
+          "from": "steps",
+          "to": "arcade-engine",
+          "msg": "tools.execute(tool, input, user_id)",
+          "kind": "call"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "token-vault",
+          "msg": "reads the token for user_id",
+          "kind": "call"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "github-api",
+          "msg": "stars the repo with the token",
+          "kind": "call"
+        },
+        {
+          "from": "github-api",
+          "to": "arcade-engine",
+          "msg": "success",
+          "kind": "return"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "steps",
+          "msg": "result JSON, without the token",
+          "kind": "return"
+        }
+      ]
+    },
+    {
+      "id": "memory-turn",
+      "name": "An agent turn with memory",
+      "description": "Step 8 answers a follow-up question using your earlier turns from Redis. Only questions and final answers are stored, not tool calls.",
+      "steps": [
+        {
+          "from": "steps",
+          "to": "memory",
+          "msg": "recent(user_id, 10)",
+          "kind": "call"
+        },
+        {
+          "from": "memory",
+          "to": "redis",
+          "msg": "ZREVRANGE timeline, then HGETALL each message",
+          "kind": "call"
+        },
+        {
+          "from": "redis",
+          "to": "memory",
+          "msg": "the last 10 messages",
+          "kind": "return"
+        },
+        {
+          "from": "steps",
+          "to": "agent-core",
+          "msg": "run_agent(question, user_id, history)",
+          "kind": "call"
+        },
+        {
+          "from": "agent-core",
+          "to": "anthropic",
+          "msg": "history + question + tool definitions",
+          "kind": "call"
+        },
+        {
+          "from": "anthropic",
+          "to": "agent-core",
+          "msg": "tool_use for a GitHub tool",
+          "kind": "return"
+        },
+        {
+          "from": "agent-core",
+          "to": "arcade-engine",
+          "msg": "execute as user_id, via arcade_helpers",
+          "kind": "call"
+        },
+        {
+          "from": "arcade-engine",
+          "to": "agent-core",
+          "msg": "tool result",
+          "kind": "return"
+        },
+        {
+          "from": "agent-core",
+          "to": "anthropic",
+          "msg": "tool_result",
+          "kind": "call"
+        },
+        {
+          "from": "anthropic",
+          "to": "agent-core",
+          "msg": "final answer",
+          "kind": "return"
+        },
+        {
+          "from": "steps",
+          "to": "memory",
+          "msg": "add(question), add(answer, tools_used)",
+          "kind": "call"
+        },
+        {
+          "from": "memory",
+          "to": "redis",
+          "msg": "HSET message + ZADD timeline, in MULTI/EXEC",
+          "kind": "call"
+        }
+      ]
+    }
+  ]
+}

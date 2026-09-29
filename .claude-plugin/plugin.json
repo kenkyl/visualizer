@@ -1,0 +1,18 @@
+{
+  "name": "visualizer",
+  "description": "Architecture diagrams that stay current. Reads a repository, writes a small JSON model of its components, flows and state, and renders it as GitHub-native Mermaid in ARCHITECTURE.md and the README. Later runs update the diagram and archive the old one.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Kyle Kennedy"
+  },
+  "repository": "https://github.com/kenkyl/visualizer",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "diagram",
+    "mermaid",
+    "c4",
+    "documentation",
+    "readme"
+  ]
+}

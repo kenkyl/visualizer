@@ -40,6 +40,7 @@
   --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body); }
 .wrap { max-width: 1400px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 56px; }
 h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
@@ -225,6 +226,18 @@ details.log pre { margin: 10px 0 0; overflow-x: auto; font: 11.5px/1.5 var(--mon
     </div>
   </section>
 
+  <section class="more" id="findings" hidden>
+    <span class="eyebrow">Rules</span>
+    <h2>Findings</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Rule</th><th>Severity</th><th>What and why</th><th>Steps</th></tr></thead>
+        <tbody id="findrows"></tbody>
+      </table>
+    </div>
+    <p id="passed" style="color:var(--muted);font-size:0.9rem"></p>
+  </section>
+
   <section class="more" id="goalmap">
     <span class="eyebrow">Framing</span>
     <h2>Learning goals → where to look</h2>
@@ -243,7 +256,9 @@ details.log pre { margin: 10px 0 0; overflow-x: auto; font: 11.5px/1.5 var(--mon
 <script>
 // ---------- data ----------
 const { trace: T, derived: D } = JSON.parse(document.getElementById("trace").textContent);
-const N = T.narrative, L = T.layout, CAP = N.captions || {}, GOALS = N.goals || {};
+// Claude's narrative if there is one; otherwise render's one-step-per-exchange tour (tour.py).
+const N = (T.narrative && (T.narrative.flows || []).length) ? T.narrative : D.narrative;
+const L = T.layout, CAP = N.captions || {}, GOALS = N.goals || {};
 const byId = (list) => Object.fromEntries((list || []).map((x) => [x.id, x]));
 const NODES = byId(T.nodes), BOUNDS = byId(T.boundaries), STEPS = byId(N.steps), TOKENS = byId(T.tokens);
 const FLOWS = byId(N.flows), FLOW_IDS = N.flows.map((f) => f.id);
@@ -299,7 +314,7 @@ function drawDiagram() {
     const g = el("g", { class: `node${nested ? " sub" : ""}${nt ? " nt" : ""}`, id: `n-${n.id}` }, svg);
     el("title", {}, g, `${n.name}: ${n.kind} (${n.confidence})`);
     el("rect", { class: "box", x, y, width: w, height: h, rx: !nested ? 10 : h < 50 ? 6 : 8 }, g);
-    const lines = CAP.nodes?.[n.id] || [n.kind.replace(/-/g, " ")];
+    const lines = CAP.nodes?.[n.id] || [n.kind.replace(/-/g, " ") + (n.confidence === "inferred" ? " (inferred)" : "")];
     if (h <= 32) {
       el("text", { class: "m", x: x + 10, y: y + 19, style: "white-space:pre" }, g, `${n.name.padEnd(7)} ${lines.join(" · ")}`);
     } else if (h < 50) {
@@ -512,6 +527,29 @@ function drawGoalMap() {
     gmap.append(card);
   }
 }
+function drawFindings() {
+  const rules = T.meta.rules || {}, list = T.findings || [];
+  if (!list.length && !Object.keys(rules).length) return;
+  $("#findings").hidden = false;
+  // A finding cites exchanges; jump to the first step (in any tour) that cites one of them.
+  const stepFor = (xid) => { for (const f of N.flows) { const i = f.steps.findIndex((sid) => (STEPS[sid].exchanges || []).includes(xid)); if (i >= 0) return [f.id, i]; } return null; };
+  $("#findrows").innerHTML = "";
+  for (const f of list) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="c"><code>${esc(f.rule)}</code></td><td><span class="tag conf" data-level="${f.severity === "critical" ? "unknown" : f.severity === "warn" ? "inferred" : "declared"}">${esc(f.severity)}</span></td>
+      <td><b>${esc(f.title)}</b><br><span style="color:var(--muted)">${md(f.detail)} <i>Fix:</i> ${md(f.fix)}</span></td><td class="jump"></td>`;
+    for (const xid of f.exchanges.slice(0, 8)) {
+      const at = stepFor(xid); if (!at) continue;
+      const b = document.createElement("button"); b.textContent = xid;
+      b.onclick = () => { flow = at[0]; idx = at[1]; render(); $(".layout").scrollIntoView({ behavior: reduce ? "auto" : "smooth" }); };
+      tr.querySelector(".jump").append(b);
+    }
+    $("#findrows").append(tr);
+  }
+  const passed = Object.entries(rules).filter(([, v]) => v === "passed").map(([k]) => k);
+  $("#passed").textContent = passed.length ? `Passed: ${passed.join(", ")}.` : "";
+  if (!list.length) $("#findings table").hidden = true;
+}
 function drawLogs() {
   if (!(T.logs || []).length) return;
   $("#logs").hidden = false;
@@ -526,7 +564,7 @@ function drawLogs() {
 
 // ---------- boot ----------
 (function boot() {
-  drawChrome(); drawDiagram(); drawInspector(); drawGoalMap(); drawLogs();
+  drawChrome(); drawDiagram(); drawInspector(); drawFindings(); drawGoalMap(); drawLogs();
   const m = /^#([\w-]+)-(\d+)$/.exec(location.hash);
   if (m && FLOWS[m[1]]) { flow = m[1]; idx = Math.min(+m[2] - 1, FLOWS[flow].steps.length - 1); }
   else { const f = store.get("flow"), i = +store.get("idx"); if (FLOWS[f]) { flow = f; if (i >= 0 && i < FLOWS[f].steps.length) idx = i; } }

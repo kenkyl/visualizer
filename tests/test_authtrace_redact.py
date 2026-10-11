@@ -136,6 +136,30 @@ class StrictTests(unittest.TestCase):
         self.assertEqual(body["profile"], "…")
 
 
+    def test_strict_keeps_protocol_structure_but_no_free_text(self):
+        scan = Redactor("strict").scan()
+        walk = lambda body: scan.walk(body, "res.body")  # noqa: E731
+        self.assertEqual(walk({"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "Unsupported protocol"}}),
+                         {"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "Unsupported protocol"}})
+        self.assertEqual(walk({"result": {"tools": [{"name": "Memes_MakeMeme", "description": "d", "inputSchema": {}}]}}),
+                         {"result": {"tools": [{"name": "Memes_MakeMeme", "description": "…", "inputSchema": "…"}]}})
+        self.assertEqual(walk({"method": "tools/call", "params": {"name": "Memes_MakeMeme", "arguments": {"hints": ["nerdy"]}}}),
+                         {"method": "tools/call", "params": {"name": "Memes_MakeMeme", "arguments": "…"}})
+        self.assertEqual(walk({"model": "m", "messages": [{"role": "user", "content": "Make me a meme"}]}),
+                         {"model": "m", "messages": "…"})
+        self.assertEqual(walk({"stop_reason": "tool_use", "content": [
+            {"type": "text", "text": "Sure"}, {"type": "tool_use", "id": "toolu_1", "name": "Memes_MakeMeme", "input": {"hints": ["x"]}}]}),
+            {"stop_reason": "tool_use", "content": [{"type": "text", "text": "…"},
+                                                    {"type": "tool_use", "id": "toolu_1", "name": "Memes_MakeMeme", "input": "…"}]})
+        self.assertEqual(walk({"content": "a plain-text reply", "message": "not an error"}),
+                         {"content": "…", "message": "…"})
+
+    def test_strict_filters_form_bodies_too(self):
+        body = Redactor("strict").scan().body("grant_type=password&client_id=memes-dev&username=dummyuser1&password=pw",
+                                              "application/x-www-form-urlencoded", "req.body")
+        self.assertEqual(body, {"grant_type": "password", "client_id": "memes-dev", "username": "…", "password": "…"})
+
+
 class RawTests(unittest.TestCase):
     def test_values_kept_but_still_fingerprinted(self):
         scan = Redactor("raw").scan()

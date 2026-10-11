@@ -1117,9 +1117,7 @@
    {
     "id": "live-2",
     "title": "Look inside the access token",
-    "exchanges": [
-     "x1"
-    ],
+    "exchanges": [],
     "time": "+0.080 s",
     "segs": [],
     "nodes": [
@@ -1139,6 +1137,9 @@
     ],
     "code": [
      "scripts/00_get_token.py"
+    ],
+    "tokens": [
+     "t1"
     ]
    },
    {

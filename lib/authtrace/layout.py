@@ -11,7 +11,7 @@ from __future__ import annotations
 COLUMNS = {"user-agent": 0, "client": 1, "agent-module": 1, "authorization-server": 2, "resource-server": 2,
            "unknown": 2, "llm-api": 3, "upstream-idp": 3}
 ORDER = {"authorization-server": 0, "resource-server": 1, "unknown": 2}
-W, H, GAP_X, GAP_Y, M = 220, 64, 120, 46, 40
+W, H, GAP_X, GAP_Y, M = 220, 64, 170, 46, 40
 
 
 def layout(trace: dict) -> dict:
@@ -44,8 +44,10 @@ def layout(trace: dict) -> dict:
             ports = right[e["from"]]
             x1, y1 = fx + fw, fy + fh * (ports.index(e["id"]) + 1) / (len(ports) + 1)
             x2, y2 = tx, ty + th / 2
-            mid = x1 + (x2 - x1) * (0.35 + 0.3 * ports.index(e["id"]) / max(len(ports) - 1, 1))
-            edges[e["id"]] = {"path": [[x1, y1], [mid, y1], [mid, y2], [x2, y2]], "label": [x1 + 6, y1 - 5]}
+            # Elbows stay near the source, so each edge's long run sits at its target's height,
+            # and its label rides on that run, clear of the other edges leaving the same box.
+            mid = x1 + 14 + 14 * ports.index(e["id"])
+            edges[e["id"]] = {"path": [[x1, y1], [mid, y1], [mid, y2], [x2, y2]], "label": [mid + 10, y2 - 6]}
         else:
             lane += 1
             y = bottom + 18 * lane

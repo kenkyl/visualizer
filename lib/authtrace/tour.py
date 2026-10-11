@@ -18,6 +18,12 @@ def _short(obj) -> str:
     return text if len(text) <= WIRE_BODY else text[:WIRE_BODY] + "…"
 
 
+def short_path(url: str) -> str:
+    """A step title's path: the last two segments, so long endpoint paths don't wrap the card."""
+    parts = [p for p in (urlsplit(url).path or "/").split("/") if p]
+    return "/" + "/".join(parts) if len(parts) <= 2 else "…/" + "/".join(parts[-2:])
+
+
 def _wire(x: dict) -> str:
     lines = [f"→ {x['method']} {x['url']}"]
     auth = (x.get("req", {}).get("headers") or {}).get("authorization")
@@ -58,7 +64,7 @@ def default_narrative(trace: dict) -> dict:
         back_tok = any(r["where"].startswith("res") for r in x["tokens"])
         failed = (x.get("status") or 500) >= 400
         steps.append({
-            "id": f"capture-{x['id']}", "title": f"{x['method']} {urlsplit(x['url']).path or '/'} → {x.get('status') or 'no response'}",
+            "id": f"capture-{x['id']}", "title": f"{x['method']} {short_path(x['url'])} → {x.get('status') or 'no response'}",
             "time": f"+{x['t0']:.3f} s", "exchanges": [x["id"]], "nodes": [x["from"], x["to"]],
             "segs": [[eid, 1, x["class"]["op"], "tok" if out_tok else "dat"],
                      [eid, -1, str(x.get("status") or "×"), "err" if failed else ("tok" if back_tok else "dat")]],

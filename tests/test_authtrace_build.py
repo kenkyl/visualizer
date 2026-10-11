@@ -104,6 +104,16 @@ class LiveFixtureTests(unittest.TestCase):
         self.assertNotIn("narrative", data["trace"])
 
 
+class TourTests(unittest.TestCase):
+    def test_short_titles(self):
+        from authtrace.tour import short_path
+
+        self.assertEqual(short_path("http://idp/realms/memes/protocol/openid-connect/token"), "…/openid-connect/token")
+        self.assertEqual(short_path("https://api.anthropic.com/v1/messages"), "/v1/messages")
+        self.assertEqual(short_path("http://rs/mcp"), "/mcp")
+        self.assertEqual(short_path("http://rs"), "/")
+
+
 class DecodeTests(unittest.TestCase):
     def test_families(self):
         def x(method, url, req=None, res=None, status=200):

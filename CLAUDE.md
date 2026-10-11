@@ -10,6 +10,7 @@ Decisions are in `docs/decisions.md`.
 ## Commands
 - `python3 -m unittest discover -s tests`
 - `python3 scripts/authtrace.py doctor`
+- `uv run --no-project --with httpx --with httpx2 python -m unittest discover -s tests` also runs the httpx capture tests.
 - `claude --plugin-dir .` loads the plugin for one session.
 
 ## Invariants

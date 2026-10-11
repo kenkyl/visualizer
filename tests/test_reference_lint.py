@@ -1,4 +1,5 @@
-"""Keep raw tokens, secrets and one-time claim values out of docs/authtrace/ (PLAN.md §16)."""
+"""Keep raw tokens, secrets and one-time claim values out of docs/authtrace/ and authtrace's
+fixtures (PLAN.md §16)."""
 
 import re
 import unittest
@@ -6,6 +7,7 @@ import unittest
 from _helpers import ROOT, viz
 
 DOCS = ROOT / "docs" / "authtrace"
+FIXTURES = ROOT / "tests" / "fixtures" / "authtrace"
 TEXT_SUFFIXES = {".md", ".py", ".html", ".log", ".txt", ".jsonl", ".json"}
 
 RAW_JWT = re.compile(r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}")
@@ -18,7 +20,7 @@ BARE_PREFIX = re.compile(r"(sk-ant-|arc_)[`'\",.;:)…]*")
 
 
 def files():
-    for path in sorted(DOCS.rglob("*")):
+    for path in sorted([*DOCS.rglob("*"), *FIXTURES.rglob("*")]):
         if path.is_file() and path.suffix in TEXT_SUFFIXES:
             yield path, path.read_text(encoding="utf-8", errors="replace")
 

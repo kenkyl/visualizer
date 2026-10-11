@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a wire-capture bench. The topology on the left stays put; the step log on the right
+   scrolls like a packet trace. Amber always means "an access token is on this hop". */
+:root {
+  --bg: #f3f5f3;
+  --surface: #ffffff;
+  --sunk: #e8ece9;
+  --fg: #18211e;
+  --muted: #56645f;
+  --line: #c3ccc8;
+  --accent: #0d7068;
+  --accent-soft: #dcefeb;
+  --token: #b06f0a;
+  --token-soft: #fbedd2;
+  --danger: #c0391b;
+  --danger-soft: #fbe2da;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1412; --surface: #151d1a; --sunk: #1b2622; --fg: #e2e9e6; --muted: #93a39d;
+    --line: #2f3d38; --accent: #3cc9b6; --accent-soft: #143430; --token: #f0b54a;
+    --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1412; --surface: #151d1a; --sunk: #1b2622; --fg: #e2e9e6; --muted: #93a39d;
+  --line: #2f3d38; --accent: #3cc9b6; --accent-soft: #143430; --token: #f0b54a;
+  --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body); }
+.wrap { max-width: 1400px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.6rem, 3.2vw, 2.3rem); font-weight: 750; }
+h2 { font-size: 1.35rem; font-weight: 750; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+p { margin: 0; }
+.eyebrow { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+header.top { display: grid; gap: 10px; margin-bottom: 18px; }
+header.top p { color: var(--muted); max-width: 72ch; }
+.result-chip { display: inline-flex; gap: 8px; align-items: center; font: 600 0.8rem var(--mono);
+  background: var(--accent-soft); color: var(--accent); padding: 4px 10px; border-radius: 999px; width: fit-content; }
+.result-chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+.seg { display: inline-flex; background: var(--sunk); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 0.92rem var(--body);
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; min-height: 40px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.goals { display: flex; flex-wrap: wrap; gap: 6px; }
+.goal { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px;
+  font: 600 0.8rem var(--body); padding: 6px 12px; cursor: pointer; min-height: 34px; }
+.goal b { font-family: var(--mono); color: var(--accent); margin-right: 4px; }
+.goal[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.goal[aria-pressed="true"] b { color: var(--bg); }
+button:focus-visible, .stepdot:focus-visible, summary:focus-visible { outline: 2px solid var(--token); outline-offset: 2px; }
+
+.layout { display: grid; gap: 18px; }
+@media (min-width: 1080px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
+  .stage { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-width: 0; }
+.svgscroll { overflow-x: auto; }
+.svgscroll svg { display: block; width: 100%; min-width: 660px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 6px 2px; font-size: 0.82rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.sw.tok { background: var(--token); } .sw.dat { background: var(--accent); } .sw.err { background: var(--danger); }
+.sw.nt { border-radius: 3px; border: 1.5px dashed var(--muted); }
+
+/* SVG */
+svg text { fill: var(--fg); font-family: var(--body); }
+svg .t { font: 700 13px var(--body); }
+svg .s { font: 400 11px var(--body); fill: var(--muted); }
+svg .m { font: 400 10.5px var(--mono); fill: var(--muted); }
+svg .zl { font: 600 10.5px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+svg .el { font: 400 10px var(--mono); fill: var(--muted); }
+.zone { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 5; stroke-linecap: round; }
+.group { fill: none; stroke: var(--line); stroke-dasharray: 5 4; }
+.node rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; transition: fill .25s, stroke .25s; }
+.node.sub rect.box { fill: var(--sunk); }
+.node.nt rect.box { stroke-dasharray: 5 4; stroke: var(--muted); }
+.node.on rect.box { stroke: var(--accent); stroke-width: 2.2; fill: var(--accent-soft); }
+.node.off { opacity: 0.25; }
+.badge rect { fill: var(--sunk); stroke: none; }
+.badge text { font: 600 10px var(--mono); fill: var(--muted); }
+.edge path { fill: none; stroke: var(--line); stroke-width: 1.8; transition: stroke .25s, opacity .25s; }
+.edge.dash path { stroke-dasharray: 5 4; }
+.edge.on path { stroke: var(--accent); stroke-width: 2.6; }
+.edge.on.tok path { stroke: var(--token); }
+.edge.on.err path { stroke: var(--danger); }
+.edge.off { opacity: 0.18; }
+.pk circle { stroke: var(--surface); stroke-width: 2; }
+.pk text { font: 700 11px var(--mono); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.pk.tok circle { fill: var(--token); } .pk.tok text { fill: var(--token); }
+.pk.dat circle { fill: var(--accent); } .pk.dat text { fill: var(--accent); }
+.pk.err circle { fill: var(--danger); } .pk.err text { fill: var(--danger); }
+
+/* Step panel */
+.panel { display: grid; gap: 14px; min-width: 0; }
+.nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nav button.btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 10px;
+  font: 600 0.92rem var(--body); padding: 8px 14px; cursor: pointer; min-height: 42px; }
+.nav button.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.nav button.btn:disabled { opacity: 0.4; cursor: default; }
+.dots { display: flex; flex-wrap: wrap; gap: 5px; }
+.stepdot { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: 600 0.8rem var(--mono); cursor: pointer; display: grid; place-items: center; }
+.stepdot.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.stepdot.tok:not(.cur) { border-color: var(--token); color: var(--token); }
+.stepdot.dim { opacity: 0.3; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.card .head { display: grid; gap: 4px; }
+.time { font: 600 0.78rem var(--mono); color: var(--muted); }
+.what { font-size: 1rem; }
+.what code, .note code, .inv code, details code { background: var(--sunk); padding: 1px 5px; border-radius: 4px; }
+pre.wire { margin: 0; background: var(--sunk); border-radius: 10px; padding: 12px 14px; overflow-x: auto;
+  font: 12.5px/1.55 var(--mono); color: var(--fg); white-space: pre; }
+.k { display: grid; gap: 6px; }
+.checks { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 0.92rem; }
+.checks dt { font-weight: 700; } .checks dd { margin: 0; color: var(--muted); }
+.note { background: var(--token-soft); border-radius: 10px; padding: 10px 12px; font-size: 0.93rem; }
+.inv { border: 1.5px solid var(--accent); border-radius: 10px; padding: 9px 12px; font-size: 0.93rem; }
+.inv::before { content: "INVARIANT  "; font: 700 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--accent); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font: 600 0.75rem var(--mono); padding: 3px 8px; border-radius: 6px; background: var(--sunk); color: var(--muted); }
+.tag.g { background: var(--accent-soft); color: var(--accent); }
+.roles { font-size: 0.9rem; color: var(--muted); }
+details.quiz { border-top: 1px solid var(--line); padding-top: 10px; }
+details.quiz summary { cursor: pointer; font-weight: 700; list-style: none; }
+details.quiz summary::before { content: "Check yourself  "; font: 700 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--token); }
+details.quiz p { margin-top: 8px; color: var(--muted); }
+.banner { font-size: 0.88rem; color: var(--muted); background: var(--sunk); border-radius: 10px; padding: 8px 12px; }
+
+section.more { margin-top: 40px; display: grid; gap: 14px; }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+td.v { font-family: var(--mono); font-size: 0.82rem; word-break: break-all; min-width: 180px; }
+td.c { font-weight: 600; white-space: nowrap; }
+.gmap { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.gcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 8px; align-content: start; }
+.gcard p { color: var(--muted); font-size: 0.92rem; }
+.jump { display: flex; flex-wrap: wrap; gap: 5px; }
+.jump button { border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px;
+  font: 600 0.75rem var(--mono); padding: 4px 8px; cursor: pointer; min-height: 30px; }
+details.log { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+details.log summary { cursor: pointer; font-weight: 700; }
+details.log pre { margin: 10px 0 0; overflow-x: auto; font: 11.5px/1.5 var(--mono); white-space: pre; }
+/* authtrace additions: confidence tags (PLAN.md §7) */
+.tag.conf { background: transparent; border: 1px solid var(--line); }
+.tag.conf[data-level="observed"], .tag.conf[data-level="verified"] { border-color: var(--accent); color: var(--accent); }
+.tag.conf[data-level="decoded"] { border-color: var(--accent); color: var(--accent); border-style: dotted; }
+.tag.conf[data-level="inferred"] { border-color: var(--token); color: var(--token); border-style: dashed; }
+.tag.conf[data-level="unknown"] { border-color: var(--danger); color: var(--danger); border-style: dashed; }
+.titlerow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<!-- Rendered by authtrace from trace.json (schema v0). Everything below is built from the
+     embedded trace; edit the trace and re-render rather than editing this page. -->
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow" id="h-eyebrow"></span>
+    <h1 id="h-title"></h1>
+    <p id="h-intro"></p>
+    <span class="result-chip" id="h-chip"></span>
+  </header>
+
+  <div class="controls">
+    <div class="seg" id="tours" role="group" aria-label="Tour"></div>
+    <div class="goals" id="goals" role="group" aria-label="Filter by learning goal"></div>
+  </div>
+
+  <div class="layout">
+    <div class="stage">
+      <div class="svgscroll"><svg id="dia" role="img"></svg></div>
+      <div class="legend">
+        <span><i class="sw tok"></i>access token on this hop</span>
+        <span><i class="sw dat"></i>data, no token</span>
+        <span><i class="sw err"></i>error response</span>
+        <span><i class="sw nt"></i>never holds a token</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="nav">
+        <button class="btn" id="prev" aria-label="Previous step">← Prev</button>
+        <button class="btn primary" id="next" aria-label="Next step">Next →</button>
+        <button class="btn" id="play" aria-pressed="false">Auto-play</button>
+      </div>
+      <div class="dots" id="dots" aria-label="Steps"></div>
+      <div id="banner" class="banner" hidden></div>
+      <article class="card" id="card" aria-live="polite"></article>
+    </div>
+  </div>
+
+  <section class="more" id="inspector" hidden>
+    <span class="eyebrow" id="i-eyebrow"></span>
+    <div class="titlerow"><h2 id="i-title"></h2><span class="tag conf" id="i-conf"></span></div>
+    <p id="i-intro" style="color:var(--muted);max-width:72ch"></p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Claim</th><th>Value in this run</th><th>Checked by</th><th>Why it matters</th></tr></thead>
+        <tbody id="claims"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="more" id="goalmap">
+    <span class="eyebrow">Framing</span>
+    <h2>Learning goals → where to look</h2>
+    <div class="gmap" id="gmap"></div>
+  </section>
+
+  <section class="more" id="logs" hidden>
+    <span class="eyebrow">Raw output</span>
+    <h2>Run logs</h2>
+    <div id="logbox" style="display:grid;gap:14px"></div>
+    <p id="lognote" style="color:var(--muted);font-size:0.9rem"></p>
+  </section>
+</div>
+
+<script type="application/json" id="trace">{{PAYLOAD}}</script>
+<script>
+// ---------- data ----------
+const { trace: T, derived: D } = JSON.parse(document.getElementById("trace").textContent);
+const N = T.narrative, L = T.layout, CAP = N.captions || {}, GOALS = N.goals || {};
+const byId = (list) => Object.fromEntries((list || []).map((x) => [x.id, x]));
+const NODES = byId(T.nodes), BOUNDS = byId(T.boundaries), STEPS = byId(N.steps), TOKENS = byId(T.tokens);
+const FLOWS = byId(N.flows), FLOW_IDS = N.flows.map((f) => f.id);
+
+// ---------- text: trace strings are data, never markup ----------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// Inline subset: `code`, **bold**, *italic*, [text](#in-page-anchor). Everything else is escaped.
+function md(s) {
+  return String(s ?? "").split(/(`[^`]*`)/).map((p, i) => i % 2 ? `<code>${esc(p.slice(1, -1))}</code>` :
+    esc(p).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>")
+      .replace(/\[([^\]]+)\]\((#[\w-]*)\)/g, '<a href="$2">$1</a>')).join("");
+}
+const weak = (c) => c === "inferred" || c === "unknown";
+
+// ---------- topology ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  if (parent) parent.append(e);
+  return e;
+}
+function inTokenZone(n) {
+  for (let b = BOUNDS[n.boundary]; b; b = BOUNDS[b.parent]) if (b.token_zone) return true;
+  return false;
+}
+// EXTEND: role-column auto-layout (PLAN.md §11) for nodes and edges the trace doesn't pin.
+function drawDiagram() {
+  const svg = $("#dia"), [W, H] = L.viewbox;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("aria-label", (N.header || {}).diagram_alt || `Topology of ${T.meta.target}. The highlighted path shows the current step.`);
+  for (const b of T.boundaries || []) {
+    const [x, y, w, h] = L.boundaries[b.id];
+    el("rect", { class: b.token_zone ? "zone" : "group", x, y, width: w, height: h, rx: b.token_zone ? 14 : 12 }, svg);
+    const label = (b.token_zone ? `${b.name} · tokens live here` : b.name).toUpperCase();
+    el("text", b.token_zone ? { class: "zl", x: x + w - 10, y: y + 20, "text-anchor": "end" } : { class: "zl", x: x + 12, y: y + 18 }, svg, label);
+  }
+  for (const e of T.edges) {
+    const g = el("g", { class: "edge" + (e.dashed || weak(e.confidence) ? " dash" : ""), id: `e-${e.id}` }, svg);
+    el("path", { d: L.edges[e.id].path.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ") }, g);
+    el("title", {}, g, `${e.label} (${e.confidence})`);
+  }
+  for (const e of T.edges) {
+    const at = L.edges[e.id].label;
+    if (!at) continue;
+    (CAP.edges?.[e.id] || [e.label]).forEach((t, i) => el("text", { class: "el", x: at[0], y: at[1] + 14 * i }, svg, t));
+  }
+  for (const n of T.nodes) {
+    const [x, y, w, h] = L.nodes[n.id], nested = !!(n.parent || BOUNDS[n.boundary]?.parent);
+    const nt = n.holds_tokens === false && !inTokenZone(n), dx = n.parent ? 10 : 12;
+    const g = el("g", { class: `node${nested ? " sub" : ""}${nt ? " nt" : ""}`, id: `n-${n.id}` }, svg);
+    el("title", {}, g, `${n.name}: ${n.kind} (${n.confidence})`);
+    el("rect", { class: "box", x, y, width: w, height: h, rx: !nested ? 10 : h < 50 ? 6 : 8 }, g);
+    const lines = CAP.nodes?.[n.id] || [n.kind.replace(/-/g, " ")];
+    if (h <= 32) {
+      el("text", { class: "m", x: x + 10, y: y + 19, style: "white-space:pre" }, g, `${n.name.padEnd(7)} ${lines.join(" · ")}`);
+    } else if (h < 50) {
+      el("text", { class: "t", x: x + 10, y: y + 18, style: "font-size:12px" }, g, n.name);
+      lines.forEach((t, i) => el("text", { class: "m", x: x + 10, y: y + 35 + 16 * i }, g, t));
+    } else {
+      el("text", { class: "t", x: x + dx, y: y + 22 }, g, n.name);
+      lines.forEach((t, i) => el("text", { class: "s", x: x + dx, y: y + 40 + 16 * i }, g, t));
+      if (nt) {
+        const by = y + 40 + 16 * (lines.length - 1) + 10, b = el("g", { class: "badge" }, g);
+        el("rect", { x: x + dx, y: by, width: 70, height: 18, rx: 4 }, b);
+        el("text", { x: x + dx + 6, y: by + 13 }, b, "no tokens");
+      }
+    }
+  }
+  el("g", { id: "packets" }, svg);
+}
+
+// ---------- state ----------
+const KEY = `authtrace:${T.meta.target}:`;
+const store = { get(k) { try { return localStorage.getItem(KEY + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(KEY + k, v); } catch {} } };
+let flow = FLOW_IDS[0], idx = 0, goal = 0, playing = false, playTimer = null;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function steps() { return FLOWS[flow].steps.map((id) => STEPS[id]); }
+function isTok(s) { return (s.segs || []).some((g) => g[3] === "tok"); }
+function matches(s) { return !goal || (s.goals || []).includes(goal); }
+
+// ---------- header, tours, goal chips ----------
+function drawChrome() {
+  const h = N.header || {};
+  $("#h-eyebrow").textContent = h.eyebrow || `${T.meta.target} · auth flow`;
+  $("#h-title").textContent = h.title || T.meta.target;
+  $("#h-intro").innerHTML = md(h.intro);
+  $("#h-chip").textContent = h.chip || ""; $("#h-chip").hidden = !h.chip;
+  for (const f of N.flows) {
+    const b = document.createElement("button");
+    b.id = `sc-${f.id}`; b.textContent = f.name; b.setAttribute("aria-pressed", "false");
+    b.onclick = () => { flow = f.id; idx = 0; render(); };
+    $("#tours").append(b);
+  }
+  for (const [n, [name]] of Object.entries(GOALS)) {
+    const b = document.createElement("button");
+    b.className = "goal"; b.dataset.g = n; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<b>G${esc(n)}</b>${esc(name)}`;
+    b.onclick = () => { goal = goal === +n ? 0 : +n; renderGoals();
+      if (goal && !matches(steps()[idx])) { const j = steps().findIndex(matches); if (j >= 0) idx = j; }
+      render(); };
+    $("#goals").append(b);
+  }
+}
+function renderGoals() { document.querySelectorAll(".goal").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.g === goal))); }
+
+// ---------- render ----------
+function render() {
+  const list = steps(), s = list[idx], F = FLOWS[flow];
+  const dimN = F.dim_nodes || [], dimE = F.dim_edges || [];
+  for (const id of FLOW_IDS) $(`#sc-${id}`).setAttribute("aria-pressed", String(id === flow));
+  const banner = $("#banner"); banner.hidden = !F.banner; banner.innerHTML = md(F.banner);
+
+  // dots
+  const dots = $("#dots"); dots.innerHTML = "";
+  list.forEach((st, i) => {
+    const d = document.createElement("button");
+    d.className = "stepdot" + (i === idx ? " cur" : "") + (isTok(st) ? " tok" : "") + (matches(st) ? "" : " dim");
+    d.textContent = i + 1; d.title = st.title; d.setAttribute("aria-label", `Step ${i + 1}: ${st.title}`);
+    d.onclick = () => { idx = i; render(); };
+    dots.append(d);
+  });
+  $("#prev").disabled = idx === 0; $("#next").disabled = idx === list.length - 1;
+
+  // diagram state
+  document.querySelectorAll(".node").forEach((n) => {
+    const id = n.id.slice(2);
+    n.classList.toggle("on", (s.nodes || []).includes(id));
+    n.classList.toggle("off", dimN.includes(id));
+  });
+  document.querySelectorAll(".edge").forEach((e) => {
+    const id = e.id.slice(2), segs = (s.segs || []).filter((g) => g[0] === id);
+    e.classList.toggle("on", segs.length > 0);
+    e.classList.toggle("tok", segs.some((g) => g[3] === "tok"));
+    e.classList.toggle("err", segs.length > 0 && segs.every((g) => g[3] === "err"));
+    e.classList.toggle("off", dimE.includes(id));
+  });
+
+  // card
+  const conf = D.steps[s.id]?.confidence;
+  const checks = s.checks ? `<div class="k"><span class="eyebrow">Who checks what</span><dl class="checks">${s.checks.map(([a, b]) => `<dt>${md(a)}</dt><dd>${md(b)}</dd>`).join("")}</dl></div>` : "";
+  const tags = [
+    conf ? `<span class="tag conf" data-level="${esc(conf)}" title="How this step is known (from the exchanges and code it cites)">${esc(conf)}</span>` : "",
+    ...(s.goals || []).map((g) => `<span class="tag g">G${esc(g)} ${esc((GOALS[g] || [""])[0])}</span>`),
+    ...(s.code || []).map((f) => `<span class="tag">${esc(f)}</span>`),
+  ].join("");
+  $("#card").innerHTML = `
+    <div class="head">
+      <span class="eyebrow">${esc(F.short || F.name)} · step ${idx + 1} of ${list.length}</span>
+      <h2>${esc(s.title)}</h2>
+      ${s.time ? `<span class="time">${esc(s.time)}</span>` : ""}
+    </div>
+    <p class="what">${md(s.what)}</p>
+    ${s.wire ? `<pre class="wire"></pre>` : ""}
+    ${checks}
+    ${s.inv ? `<p class="inv">${md(s.inv)}</p>` : ""}
+    ${s.note ? `<p class="note">${md(s.note)}</p>` : ""}
+    ${s.roles ? `<p class="roles"><b>OAuth roles:</b> ${md(s.roles)}</p>` : ""}
+    <div class="tags">${tags}</div>
+    ${s.quiz ? `<details class="quiz"><summary>${md(s.quiz[0])}</summary><p>${md(s.quiz[1])}</p></details>` : ""}`;
+  if (s.wire) $("#card .wire").textContent = s.wire;
+
+  store.set("flow", flow); store.set("idx", String(idx));
+  try { history.replaceState(null, "", `#${flow}-${idx + 1}`); } catch {}
+  startPackets(s);
+}
+
+// ---------- packets ----------
+let raf = 0;
+function packet(kind, label) {
+  const g = el("g", { class: `pk ${kind}` }, $("#packets"));
+  el("circle", { r: 7 }, g); el("text", { x: 11, y: -9 }, g, label);
+  return g;
+}
+function place(g, path, frac, dir) {
+  const len = path.getTotalLength(), p = path.getPointAtLength(dir > 0 ? frac * len : (1 - frac) * len);
+  g.setAttribute("transform", `translate(${p.x} ${p.y})`);
+}
+function startPackets(s) {
+  cancelAnimationFrame(raf); $("#packets").innerHTML = "";
+  const list = s.segs || [];
+  if (!list.length) return;
+  const segs = list.map(([e, dir, label, kind]) => ({ path: document.querySelector(`#e-${CSS.escape(e)} path`), dir, g: packet(kind, label) }));
+  if (reduce) { segs.forEach((x, i) => place(x.g, x.path, segs.length > 1 ? 0.3 + 0.4 * (i / (segs.length - 1)) : 0.5, x.dir)); return; }
+  const DUR = 1150, GAP = 650, total = segs.length * DUR + GAP; let t0 = 0;
+  const tick = (now) => {
+    if (!t0) t0 = now;
+    const t = (now - t0) % total, k = Math.min(Math.floor(t / DUR), segs.length - 1);
+    segs.forEach((x, i) => {
+      const show = i === k && t < segs.length * DUR;
+      x.g.style.opacity = show ? 1 : 0;
+      if (show) { const f = (t - i * DUR) / DUR; place(x.g, x.path, f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2, x.dir); }
+    });
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+
+// ---------- navigation ----------
+function go(delta) {
+  const list = steps(); let j = idx;
+  do { j += delta; } while (j >= 0 && j < list.length && goal && !matches(list[j]));
+  if (j >= 0 && j < list.length) { idx = j; render(); return true; }
+  return false;
+}
+$("#prev").onclick = () => go(-1);
+$("#next").onclick = () => go(1);
+$("#play").onclick = () => setPlay(!playing);
+function setPlay(on) {
+  playing = on; $("#play").setAttribute("aria-pressed", String(on));
+  $("#play").textContent = on ? "Pause" : "Auto-play";
+  clearInterval(playTimer);
+  if (on) playTimer = setInterval(() => { if (!go(1)) setPlay(false); }, 6500);
+}
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowRight") go(1); if (e.key === "ArrowLeft") go(-1);
+});
+
+// ---------- static sections ----------
+// A claim's value is a fact (from the token); who checks it and why it matters are narrative.
+function claimValue(key, v, claims) {
+  if (v === undefined) return "(not in token)";
+  if (["exp", "iat", "nbf", "auth_time"].includes(key) && typeof v === "number") {
+    const life = key === "exp" && typeof claims.iat === "number" ? `, iat + ${v - claims.iat} s` : "";
+    return `${v} (${new Date(v * 1000).toISOString().slice(11, 19)} UTC${life})`;
+  }
+  const s = Array.isArray(v) ? v.join(" ") : String(v);
+  return s.length > 40 ? `${s.slice(0, 12)}…${s.slice(-5)}` : s;
+}
+function drawInspector() {
+  const insp = N.inspector, tok = insp && TOKENS[insp.token];
+  if (!tok) return;
+  $("#inspector").hidden = false;
+  $("#i-eyebrow").textContent = insp.eyebrow || "Token";
+  $("#i-title").textContent = insp.title || "Token inspector";
+  $("#i-conf").textContent = tok.verified ? "verified" : tok.confidence;
+  $("#i-conf").dataset.level = tok.verified ? "verified" : tok.confidence;
+  $("#i-intro").innerHTML = md(insp.intro);
+  const claims = tok.claims || {};
+  $("#claims").innerHTML = (insp.claims || []).map(({ claim, checked_by, why }) => {
+    const key = claim.replace(/^header\./, ""), v = claim.startsWith("header.") ? (tok.header || {})[key] : claims[key];
+    return `<tr><td class="c"><code>${esc(claim)}</code></td><td class="v">${esc(claimValue(key, v, claims))}</td><td>${md(checked_by)}</td><td>${md(why)}</td></tr>`;
+  }).join("");
+}
+function drawGoalMap() {
+  const gmap = $("#gmap");
+  $("#goalmap").hidden = !Object.keys(GOALS).length;
+  for (const [n, [name, desc]] of Object.entries(GOALS)) {
+    const card = document.createElement("div"); card.className = "gcard";
+    card.innerHTML = `<h3><span class="mono" style="color:var(--accent)">G${esc(n)}</span> ${esc(name)}</h3><p>${md(desc)}</p><div class="jump"></div>`;
+    const jump = card.querySelector(".jump");
+    for (const f of N.flows) {
+      f.steps.forEach((sid, i) => {
+        const st = STEPS[sid];
+        if (!(st.goals || []).includes(+n)) return;
+        const b = document.createElement("button"); b.textContent = `${(f.short || f.name).split(" ")[0]} ${i + 1}`; b.title = st.title;
+        b.onclick = () => { flow = f.id; idx = i; render(); $(".layout").scrollIntoView({ behavior: reduce ? "auto" : "smooth" }); };
+        jump.append(b);
+      });
+    }
+    gmap.append(card);
+  }
+}
+function drawLogs() {
+  if (!(T.logs || []).length) return;
+  $("#logs").hidden = false;
+  for (const log of T.logs) {
+    const d = document.createElement("details"); d.className = "log"; d.open = !!log.open;
+    const sum = document.createElement("summary"); sum.textContent = log.title;
+    const pre = document.createElement("pre"); pre.textContent = log.text;
+    d.append(sum, pre); $("#logbox").append(d);
+  }
+  $("#lognote").innerHTML = md(N.logs_note);
+}
+
+// ---------- boot ----------
+(function boot() {
+  drawChrome(); drawDiagram(); drawInspector(); drawGoalMap(); drawLogs();
+  const m = /^#([\w-]+)-(\d+)$/.exec(location.hash);
+  if (m && FLOWS[m[1]]) { flow = m[1]; idx = Math.min(+m[2] - 1, FLOWS[flow].steps.length - 1); }
+  else { const f = store.get("flow"), i = +store.get("idx"); if (FLOWS[f]) { flow = f; if (i >= 0 && i < FLOWS[f].steps.length) idx = i; } }
+  render();
+})();
+</script>
+</body>
+</html>

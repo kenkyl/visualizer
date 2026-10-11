@@ -23,11 +23,11 @@ Decisions are in `docs/decisions.md`.
 - Claude reads redacted traces, never raw captures.
 - Active probes are opt-in and only against allowlisted hosts the user owns.
 - authtrace outputs go to `.authtrace/` (gitignored) in the target, or outside it. The architecture skill writes tracked docs, and only after asking.
-- Nothing in `docs/authtrace/` may contain a raw JWT, secret or one-time claim value; `tests/test_reference_lint.py` enforces it.
+- Nothing in `docs/authtrace/` or `tests/fixtures/authtrace/` may contain a raw JWT, secret or one-time claim value; `tests/test_reference_lint.py` enforces it.
 
 ## Conventions
 - unittest, no third-party test dependencies. Mark add-on points with `# EXTEND:` comments.
-- Golden fixtures: `VIZ_UPDATE_GOLDEN=1` (and `AUTHTRACE_UPDATE_GOLDEN=1` once authtrace has goldens) rewrites them after intended changes.
+- Golden fixtures: `VIZ_UPDATE_GOLDEN=1` (and `AUTHTRACE_UPDATE_GOLDEN=1` for authtrace) rewrites them after intended changes.
 - Record decisions in `docs/decisions.md`. Keep `CHANGELOG.md` current.
 
 ## Pairing (authtrace)

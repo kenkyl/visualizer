@@ -24,7 +24,7 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(set(data), {"version", "environment", "modes"})
         self.assertEqual(set(data["environment"]),
                          {"python", "python_ok", "uv", "chrome", "playwright_chromium"})
-        self.assertEqual([m["id"] for m in data["modes"]], ["core", "hooks", "browser", "proxy", "live"])
+        self.assertEqual([m["id"] for m in data["modes"]], ["render", "core", "hooks", "browser", "proxy", "live"])
         for mode in data["modes"]:
             self.assertEqual(set(mode), {"id", "name", "milestone", "built", "missing", "note"})
 
@@ -37,7 +37,7 @@ class DoctorTests(unittest.TestCase):
 
 class PlannedCommandTests(unittest.TestCase):
     def test_planned_commands_exit_2_and_name_their_milestone(self):
-        for args, milestone in ((["render", "trace.json"], "M1"), (["run", "--", "pytest", "-q"], "M2"),
+        for args, milestone in ((["run", "--", "pytest", "-q"], "M2"),
                                 (["explain", "-"], "M3"), (["check", "trace.json"], "M4")):
             result = run(*args)
             self.assertEqual(result.returncode, 2, args)
@@ -45,6 +45,9 @@ class PlannedCommandTests(unittest.TestCase):
             self.assertIn("PLAN.md", result.stderr)
 
     def test_launcher_refuses_import(self):
+        # Other test modules import the real package from lib/; set it aside so this import
+        # resolves against scripts/ and hits the launcher's guard.
+        saved = {k: sys.modules.pop(k) for k in list(sys.modules) if k == "authtrace" or k.startswith("authtrace.")}
         sys.path.insert(0, str(ROOT / "scripts"))
         try:
             with self.assertRaises(ImportError):
@@ -52,6 +55,7 @@ class PlannedCommandTests(unittest.TestCase):
         finally:
             sys.path.remove(str(ROOT / "scripts"))
             sys.modules.pop("authtrace", None)
+            sys.modules.update(saved)
 
 
 class StdlibOnlyTests(unittest.TestCase):

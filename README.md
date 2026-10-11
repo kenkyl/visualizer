@@ -53,7 +53,7 @@ Nothing it writes contains a stored value. Snapshots and models hold names, type
 | `/visualizer:auth-flow doctor` | Reports what this machine can capture | `python3` |
 | `/visualizer:explain-token <jwt>` | Decodes and explains a token, masking it in the output | `python3` |
 
-**Status:** scaffold only. `doctor` works; capture, build, check and render follow the milestones in [`docs/authtrace/PLAN.md`](docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). Both skills run only when you type them. The reference captures that the viewer is modelled on are in [`docs/authtrace/reference/`](docs/authtrace/reference/).
+**Status:** preview. The full procedure works for Python apps: capture, build facts, investigate from the code, narrate, check, render and deliver. Browser and proxy capture (M5) and live mode (M6) are next; see [`docs/authtrace/PLAN.md`](docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). Both skills run only when you type them. The reference captures that the viewer is modelled on are in [`docs/authtrace/reference/`](docs/authtrace/reference/).
 
 ## Install
 

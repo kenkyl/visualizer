@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0 (2026-10-11)
+
+### Auth flows
+
+- authtrace M4: the full `/visualizer:auth-flow` procedure. After capture and build, Claude investigates every error, inferred part and finding from source, writes a narrative, checks it, renders it, and delivers it (a private artifact if you agree). It also shows that the target's `git status` is unchanged.
+- `authtrace.py narrate TRACE NARRATIVE` puts Claude's `narrative.json` into a trace and lays the diagram out again. Claude never edits `trace.json`. A narrative can add the parts a capture can't see (modules, middleware, endpoints, a browser), each `declared` from code or `inferred` with a reason, and give fact nodes real names.
+- `narrate` runs the same checks as `check`, except the git one, and writes nothing if they fail.
+- `authtrace.py check TRACE [--root DIR]` must pass before render. It checks:
+  - a secret lint over the whole file, narrative included;
+  - the schema and references;
+  - that the facts are unedited since `build` (`meta.facts_hash`);
+  - that narrative confidence never exceeds its evidence;
+  - that evidence paths and line numbers exist in the target;
+  - that the trace is git-ignored.
+
+  It also lists what's still inferred or unknown, under the narrative's names. Lint hits name their JSON path (`narrative.steps[2].wire`), never the value.
+- `authtrace.py show TRACE [ID ...]` lists a trace's ids, or prints exchanges as redacted wire text and tokens' claims.
+- `show` starts with the run's command, exit code and duration.
+- Layout: children are drawn inside their parent and inherit its token zone, boxes are sized for their captions, edges between siblings go down the parent's edge with their labels outside it, and boundaries wrap what they hold. Endpoints are one line, with no kind tag. Step links in prose (`[see](#live-4)`) now navigate.
+- `build` records a facts hash, the run's exit code and duration, and a redacted capture log. It also refuses a tracked output folder, and creates the folder if it's missing.
+- Skill references: `procedure.md` now covers investigate, narrate, check and deliver in full, and the new `narrative.md` documents every narrative field.
+- The secret lint lives in `lib/authtrace/lint.py`, shared by `check` and the reference-lint test. It also catches unmasked secret fields, query parameters and Bearer values.
+- Acceptance: a fresh Claude session ran the skill in memes-agent on the strict live capture, using only SKILL.md and its references. Its narrative passed `check`, with every evidence path verified, and memes-agent's `git status` stayed empty. The narrative and its page are now `tests/fixtures/authtrace/memes-agent-live/narrative.json` and `flow.html`, the golden. The session's feedback shaped the docs and the fixes above.
+- Tests: check, narrate, show, the nested layout, and the acceptance golden.
+
 ## 0.3.0 (2026-10-11)
 
 ### Data models

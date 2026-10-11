@@ -6,13 +6,17 @@ The contract is PLAN.md §6, with v0 choices recorded in docs/decisions.md: tour
 
   facts       meta, boundaries, nodes, edges, exchanges, tokens, sessions, checks, findings, logs
   narrative   header, goals, flows, steps, captions, inspector, logs_note   (Claude's, never the core's)
+              plus additions: boundaries, nodes, edges (parts of the system the capture can't see,
+              each `declared` from code or `inferred`), and names (display names for fact nodes)
   layout      viewbox, boundaries, nodes, edges                            (positions, not meaning)
 
-Full validation (evidence paths, the secret lint, confidence never rising) is `check`, in M4.
+The diagram draws facts and narrative additions together; `drawn()` merges them. Full validation
+(evidence paths, the secret lint, confidence never rising, facts unedited) is check.py.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -23,6 +27,24 @@ FACT_SECTIONS = ("boundaries", "nodes", "edges", "exchanges", "tokens", "session
 # Facts with an id that something can point at, and must therefore carry a confidence.
 CONFIDENT = ("nodes", "edges", "exchanges", "tokens", "checks", "findings", "logs")
 SEG_KINDS = ("tok", "dat", "err")
+DRAWN = ("boundaries", "nodes", "edges")
+
+
+def drawn(trace: dict) -> dict:
+    """What the diagram draws: each of boundaries, nodes and edges, facts first, then the
+    narrative's additions."""
+    nar = trace.get("narrative") or {}
+    return {k: list(trace.get(k) or []) + list(nar.get(k) or []) for k in DRAWN}
+
+
+def facts_hash(trace: dict) -> str:
+    """A hash of every fact: meta (but this hash) and the fact sections. `build` stores it in
+    meta.facts_hash, and `check` recomputes it, so a hand edit to a fact fails. The narrative and
+    layout aren't facts, so `narrate` can rewrite them."""
+    meta = {k: v for k, v in (trace.get("meta") or {}).items() if k != "facts_hash"}
+    facts = {"meta": meta, **{k: trace.get(k) for k in FACT_SECTIONS}}
+    text = json.dumps(facts, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def load(path: Path) -> dict:
@@ -49,20 +71,35 @@ def problems(trace: dict) -> list[str]:
         return [f"meta.schema_version must be {SCHEMA_VERSION}, got {meta.get('schema_version')!r}"]
 
     ids = {name: _ids(trace.get(name) or [], name, out) for name in FACT_SECTIONS if name not in ("checks", "findings")}
+    nar = trace.get("narrative") or {}
+    for name in DRAWN:
+        added = _ids(nar.get(name) or [], f"narrative.{name}", out)
+        for iid in sorted(added & ids[name]):
+            out.append(f"narrative.{name}: {iid!r} is already a fact; add parts under new ids")
+        ids[name] |= added
     for section in CONFIDENT:
         for i, item in enumerate(trace.get(section) or []):
             if item.get("confidence") not in LEVELS:
                 out.append(f"{section}[{i}] ({item.get('id', item.get('rule', '?'))}): confidence must be one of {', '.join(LEVELS)}")
+    for section in ("nodes", "edges"):
+        for i, item in enumerate(nar.get(section) or []):
+            if item.get("confidence") not in LEVELS:
+                out.append(f"narrative.{section}[{i}] ({item.get('id', '?')}): confidence must be one of {', '.join(LEVELS)}")
 
-    for b in trace.get("boundaries") or []:
+    every = drawn(trace)
+    for b in every["boundaries"]:
         if b.get("parent") and b["parent"] not in ids["boundaries"]:
             out.append(f"boundary {b['id']}: unknown parent {b['parent']!r}")
-    for n in trace.get("nodes") or []:
+    for n in every["nodes"]:
+        if not n.get("name") or not n.get("kind"):
+            out.append(f"node {n.get('id')}: needs a name and a kind")
         if n.get("boundary") and n["boundary"] not in ids["boundaries"]:
             out.append(f"node {n['id']}: unknown boundary {n['boundary']!r}")
         if n.get("parent") and n["parent"] not in ids["nodes"]:
             out.append(f"node {n['id']}: unknown parent {n['parent']!r}")
-    for e in trace.get("edges") or []:
+    for e in every["edges"]:
+        if not e.get("label"):
+            out.append(f"edge {e.get('id')}: needs a label")
         for end in ("from", "to"):
             if e.get(end) not in ids["nodes"]:
                 out.append(f"edge {e.get('id')}: unknown {end} node {e.get(end)!r}")
@@ -122,6 +159,9 @@ def _narrative_problems(nar: dict, ids: dict) -> list[str]:
             if len(seg) != 4 or seg[0] not in ids["edges"] or seg[1] not in (1, -1) or seg[3] not in SEG_KINDS:
                 out.append(f"{where}: bad seg {seg!r} (want [edge id, 1 or -1, label, {'|'.join(SEG_KINDS)}])")
 
+    for nid in nar.get("names") or {}:
+        if nid not in ids["nodes"]:
+            out.append(f"narrative.names: unknown node {nid!r}")
     captions = nar.get("captions") or {}
     for kind in ("nodes", "edges"):
         for cid in captions.get(kind) or {}:

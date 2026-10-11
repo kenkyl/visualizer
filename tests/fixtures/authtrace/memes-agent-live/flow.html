@@ -1,0 +1,6513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memes-agent live run</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a wire-capture bench. The topology on the left stays put; the step log on the right
+   scrolls like a packet trace. Amber always means "an access token is on this hop". */
+:root {
+  --bg: #f3f5f3;
+  --surface: #ffffff;
+  --sunk: #e8ece9;
+  --fg: #18211e;
+  --muted: #56645f;
+  --line: #c3ccc8;
+  --accent: #0d7068;
+  --accent-soft: #dcefeb;
+  --token: #b06f0a;
+  --token-soft: #fbedd2;
+  --danger: #c0391b;
+  --danger-soft: #fbe2da;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1412; --surface: #151d1a; --sunk: #1b2622; --fg: #e2e9e6; --muted: #93a39d;
+    --line: #2f3d38; --accent: #3cc9b6; --accent-soft: #143430; --token: #f0b54a;
+    --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1412; --surface: #151d1a; --sunk: #1b2622; --fg: #e2e9e6; --muted: #93a39d;
+  --line: #2f3d38; --accent: #3cc9b6; --accent-soft: #143430; --token: #f0b54a;
+  --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body); }
+.wrap { max-width: 1400px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.6rem, 3.2vw, 2.3rem); font-weight: 750; }
+h2 { font-size: 1.35rem; font-weight: 750; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+p { margin: 0; }
+.eyebrow { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+header.top { display: grid; gap: 10px; margin-bottom: 18px; }
+header.top p { color: var(--muted); max-width: 72ch; }
+.result-chip { display: inline-flex; gap: 8px; align-items: center; font: 600 0.8rem var(--mono);
+  background: var(--accent-soft); color: var(--accent); padding: 4px 10px; border-radius: 999px; width: fit-content; }
+.result-chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+.seg { display: inline-flex; background: var(--sunk); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 0.92rem var(--body);
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; min-height: 40px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.goals { display: flex; flex-wrap: wrap; gap: 6px; }
+.goal { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px;
+  font: 600 0.8rem var(--body); padding: 6px 12px; cursor: pointer; min-height: 34px; }
+.goal b { font-family: var(--mono); color: var(--accent); margin-right: 4px; }
+.goal[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.goal[aria-pressed="true"] b { color: var(--bg); }
+button:focus-visible, .stepdot:focus-visible, summary:focus-visible { outline: 2px solid var(--token); outline-offset: 2px; }
+
+.layout { display: grid; gap: 18px; }
+@media (min-width: 1080px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
+  .stage { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-width: 0; }
+.svgscroll { overflow-x: auto; }
+.svgscroll svg { display: block; width: 100%; min-width: 660px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 6px 2px; font-size: 0.82rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.sw.tok { background: var(--token); } .sw.dat { background: var(--accent); } .sw.err { background: var(--danger); }
+.sw.nt { border-radius: 3px; border: 1.5px dashed var(--muted); }
+
+/* SVG */
+svg text { fill: var(--fg); font-family: var(--body); }
+svg .t { font: 700 13px var(--body); }
+svg .s { font: 400 11px var(--body); fill: var(--muted); }
+svg .m { font: 400 10.5px var(--mono); fill: var(--muted); }
+svg .zl { font: 600 10.5px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+svg .el { font: 400 10px var(--mono); fill: var(--muted); }
+.zone { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 5; stroke-linecap: round; }
+.group { fill: none; stroke: var(--line); stroke-dasharray: 5 4; }
+.node rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; transition: fill .25s, stroke .25s; }
+.node.sub rect.box { fill: var(--sunk); }
+.node.nt rect.box { stroke-dasharray: 5 4; stroke: var(--muted); }
+.node.on rect.box { stroke: var(--accent); stroke-width: 2.2; fill: var(--accent-soft); }
+.node.off { opacity: 0.25; }
+.badge rect { fill: var(--sunk); stroke: none; }
+.badge text { font: 600 10px var(--mono); fill: var(--muted); }
+.edge path { fill: none; stroke: var(--line); stroke-width: 1.8; transition: stroke .25s, opacity .25s; }
+.edge.dash path { stroke-dasharray: 5 4; }
+.edge.on path { stroke: var(--accent); stroke-width: 2.6; }
+.edge.on.tok path { stroke: var(--token); }
+.edge.on.err path { stroke: var(--danger); }
+.edge.off { opacity: 0.18; }
+.pk circle { stroke: var(--surface); stroke-width: 2; }
+.pk text { font: 700 11px var(--mono); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.pk.tok circle { fill: var(--token); } .pk.tok text { fill: var(--token); }
+.pk.dat circle { fill: var(--accent); } .pk.dat text { fill: var(--accent); }
+.pk.err circle { fill: var(--danger); } .pk.err text { fill: var(--danger); }
+
+/* Step panel */
+.panel { display: grid; gap: 14px; min-width: 0; }
+.nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nav button.btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 10px;
+  font: 600 0.92rem var(--body); padding: 8px 14px; cursor: pointer; min-height: 42px; }
+.nav button.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.nav button.btn:disabled { opacity: 0.4; cursor: default; }
+.dots { display: flex; flex-wrap: wrap; gap: 5px; }
+.stepdot { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: 600 0.8rem var(--mono); cursor: pointer; display: grid; place-items: center; }
+.stepdot.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.stepdot.tok:not(.cur) { border-color: var(--token); color: var(--token); }
+.stepdot.dim { opacity: 0.3; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.card .head { display: grid; gap: 4px; }
+.time { font: 600 0.78rem var(--mono); color: var(--muted); }
+.what { font-size: 1rem; }
+.what code, .note code, .inv code, details code { background: var(--sunk); padding: 1px 5px; border-radius: 4px; }
+pre.wire { margin: 0; background: var(--sunk); border-radius: 10px; padding: 12px 14px; overflow-x: auto;
+  font: 12.5px/1.55 var(--mono); color: var(--fg); white-space: pre; }
+.k { display: grid; gap: 6px; }
+.checks { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 0.92rem; }
+.checks dt { font-weight: 700; } .checks dd { margin: 0; color: var(--muted); }
+.note { background: var(--token-soft); border-radius: 10px; padding: 10px 12px; font-size: 0.93rem; }
+.inv { border: 1.5px solid var(--accent); border-radius: 10px; padding: 9px 12px; font-size: 0.93rem; }
+.inv::before { content: "INVARIANT  "; font: 700 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--accent); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font: 600 0.75rem var(--mono); padding: 3px 8px; border-radius: 6px; background: var(--sunk); color: var(--muted); }
+.tag.g { background: var(--accent-soft); color: var(--accent); }
+.roles { font-size: 0.9rem; color: var(--muted); }
+details.quiz { border-top: 1px solid var(--line); padding-top: 10px; }
+details.quiz summary { cursor: pointer; font-weight: 700; list-style: none; }
+details.quiz summary::before { content: "Check yourself  "; font: 700 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--token); }
+details.quiz p { margin-top: 8px; color: var(--muted); }
+.banner { font-size: 0.88rem; color: var(--muted); background: var(--sunk); border-radius: 10px; padding: 8px 12px; }
+
+section.more { margin-top: 40px; display: grid; gap: 14px; }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+td.v { font-family: var(--mono); font-size: 0.82rem; word-break: break-all; min-width: 180px; }
+td.c { font-weight: 600; white-space: nowrap; }
+.gmap { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.gcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 8px; align-content: start; }
+.gcard p { color: var(--muted); font-size: 0.92rem; }
+.jump { display: flex; flex-wrap: wrap; gap: 5px; }
+.jump button { border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px;
+  font: 600 0.75rem var(--mono); padding: 4px 8px; cursor: pointer; min-height: 30px; }
+details.log { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+details.log summary { cursor: pointer; font-weight: 700; }
+details.log pre { margin: 10px 0 0; overflow-x: auto; font: 11.5px/1.5 var(--mono); white-space: pre; }
+/* authtrace additions: confidence tags (PLAN.md §7) */
+.tag.conf { background: transparent; border: 1px solid var(--line); }
+.tag.conf[data-level="observed"], .tag.conf[data-level="verified"] { border-color: var(--accent); color: var(--accent); }
+.tag.conf[data-level="decoded"] { border-color: var(--accent); color: var(--accent); border-style: dotted; }
+.tag.conf[data-level="inferred"] { border-color: var(--token); color: var(--token); border-style: dashed; }
+.tag.conf[data-level="unknown"] { border-color: var(--danger); color: var(--danger); border-style: dashed; }
+.titlerow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<!-- Rendered by authtrace from trace.json (schema v0). Everything below is built from the
+     embedded trace; edit the trace and re-render rather than editing this page. -->
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow" id="h-eyebrow"></span>
+    <h1 id="h-title"></h1>
+    <p id="h-intro"></p>
+    <span class="result-chip" id="h-chip"></span>
+  </header>
+
+  <div class="controls">
+    <div class="seg" id="tours" role="group" aria-label="Tour"></div>
+    <div class="goals" id="goals" role="group" aria-label="Filter by learning goal"></div>
+  </div>
+
+  <div class="layout">
+    <div class="stage">
+      <div class="svgscroll"><svg id="dia" role="img"></svg></div>
+      <div class="legend">
+        <span><i class="sw tok"></i>access token on this hop</span>
+        <span><i class="sw dat"></i>data, no token</span>
+        <span><i class="sw err"></i>error response</span>
+        <span><i class="sw nt"></i>never holds a token</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="nav">
+        <button class="btn" id="prev" aria-label="Previous step">← Prev</button>
+        <button class="btn primary" id="next" aria-label="Next step">Next →</button>
+        <button class="btn" id="play" aria-pressed="false">Auto-play</button>
+      </div>
+      <div class="dots" id="dots" aria-label="Steps"></div>
+      <div id="banner" class="banner" hidden></div>
+      <article class="card" id="card" aria-live="polite"></article>
+    </div>
+  </div>
+
+  <section class="more" id="inspector" hidden>
+    <span class="eyebrow" id="i-eyebrow"></span>
+    <div class="titlerow"><h2 id="i-title"></h2><span class="tag conf" id="i-conf"></span></div>
+    <p id="i-intro" style="color:var(--muted);max-width:72ch"></p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Claim</th><th>Value in this run</th><th>Checked by</th><th>Why it matters</th></tr></thead>
+        <tbody id="claims"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="more" id="findings" hidden>
+    <span class="eyebrow">Rules</span>
+    <h2>Findings</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Rule</th><th>Severity</th><th>What and why</th><th>Steps</th></tr></thead>
+        <tbody id="findrows"></tbody>
+      </table>
+    </div>
+    <p id="passed" style="color:var(--muted);font-size:0.9rem"></p>
+  </section>
+
+  <section class="more" id="goalmap">
+    <span class="eyebrow">Framing</span>
+    <h2>Learning goals → where to look</h2>
+    <div class="gmap" id="gmap"></div>
+  </section>
+
+  <section class="more" id="logs" hidden>
+    <span class="eyebrow">Raw output</span>
+    <h2>Run logs</h2>
+    <div id="logbox" style="display:grid;gap:14px"></div>
+    <p id="lognote" style="color:var(--muted);font-size:0.9rem"></p>
+  </section>
+</div>
+
+<script type="application/json" id="trace">{
+ "trace": {
+  "meta": {
+   "schema_version": 0,
+   "tool": "authtrace",
+   "version": "0.0.1",
+   "captured_at": "2026-10-11T00:56:46-05:00",
+   "target": "memes-agent",
+   "command": "uv run pytest -m live -q",
+   "mechanisms": [
+    "run-hooks"
+   ],
+   "redaction": "strict",
+   "exit_code": 0,
+   "seconds": 11.693,
+   "rules": {
+    "OAUTH-ROPC": "fired",
+    "MCP-VERSION-FALLBACK": "fired",
+    "TOKEN-LEAK-LLM": "passed",
+    "REFRESH-TO-RS": "passed",
+    "AUD-MISMATCH": "passed",
+    "AT-LIFETIME": "passed",
+    "JWT-ALG": "passed",
+    "HTTP-TOKENS": "passed",
+    "TOKEN-IN-URL": "passed",
+    "HOST-ALIAS": "fired"
+   },
+   "facts_hash": "sha256:e127b032c3bb6c521c662683eb2d1adce5a46b4c33be67d35e2b7994a0884121"
+  },
+  "boundaries": [
+   {
+    "id": "machine",
+    "name": "Your machine",
+    "token_zone": true,
+    "parent": null
+   }
+  ],
+  "nodes": [
+   {
+    "id": "pytest",
+    "name": "pytest",
+    "kind": "client",
+    "roles": [
+     "client"
+    ],
+    "boundary": "machine",
+    "parent": null,
+    "holds_tokens": true,
+    "evidence": [],
+    "why": [
+     "captured as a running process",
+     "requested tokens from a token endpoint, so it acts as an OAuth client"
+    ],
+    "confidence": "observed"
+   },
+   {
+    "id": "localhost-8080",
+    "name": "localhost:8080",
+    "kind": "authorization-server",
+    "roles": [
+     "authorization-server"
+    ],
+    "boundary": "machine",
+    "parent": null,
+    "origin": "http://localhost:8080",
+    "endpoints": [
+     "/realms/memes/protocol/openid-connect/revoke",
+     "/realms/memes/protocol/openid-connect/token"
+    ],
+    "families": [
+     "oauth"
+    ],
+    "holds_tokens": false,
+    "evidence": [],
+    "why": [
+     "serves OAuth endpoints (revoke, token/password, token/refresh_token)"
+    ],
+    "confidence": "inferred"
+   },
+   {
+    "id": "127-0-0-1-8001",
+    "name": "127.0.0.1:8001",
+    "kind": "resource-server",
+    "roles": [
+     "resource-server"
+    ],
+    "boundary": "machine",
+    "parent": null,
+    "origin": "http://127.0.0.1:8001",
+    "endpoints": [
+     "/mcp"
+    ],
+    "families": [
+     "mcp"
+    ],
+    "holds_tokens": false,
+    "evidence": [],
+    "why": [
+     "receives Bearer tokens whose `aud` names it"
+    ],
+    "confidence": "inferred"
+   },
+   {
+    "id": "api-anthropic-com",
+    "name": "api.anthropic.com",
+    "kind": "llm-api",
+    "roles": [
+     "llm-api"
+    ],
+    "boundary": null,
+    "parent": null,
+    "origin": "https://api.anthropic.com",
+    "endpoints": [
+     "/v1/messages"
+    ],
+    "families": [
+     "llm"
+    ],
+    "holds_tokens": false,
+    "evidence": [],
+    "why": [
+     "answers model API calls"
+    ],
+    "confidence": "inferred"
+   }
+  ],
+  "edges": [
+   {
+    "id": "pytest--localhost-8080",
+    "from": "pytest",
+    "to": "localhost-8080",
+    "channel": "back",
+    "dashed": false,
+    "confidence": "observed",
+    "label": "revoke · token"
+   },
+   {
+    "id": "pytest--127-0-0-1-8001",
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "channel": "back",
+    "dashed": false,
+    "confidence": "observed",
+    "label": "MCP + Bearer"
+   },
+   {
+    "id": "pytest--api-anthropic-com",
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "channel": "back",
+    "dashed": false,
+    "confidence": "observed",
+    "label": "model API"
+   },
+   {
+    "id": "127-0-0-1-8001--localhost-8080--keys",
+    "from": "127-0-0-1-8001",
+    "to": "localhost-8080",
+    "label": "JWKS (not captured)",
+    "channel": "back",
+    "dashed": true,
+    "confidence": "inferred",
+    "why": "127.0.0.1:8001 accepts asymmetric-signed tokens from http://localhost:8080/realms/memes, so it must fetch that issuer's public keys (or introspect). It wasn't run under capture, so that traffic isn't here. To confirm, start it under `authtrace run`."
+   }
+  ],
+  "exchanges": [
+   {
+    "id": "x1",
+    "capture_id": "80582-1",
+    "t0": 1.806,
+    "t1": 1.8445,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/token",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "105",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "grant_type": "password",
+      "client_id": "memes-dev",
+      "username": "…",
+      "password": "…",
+      "scope": "openid memes:read"
+     }
+    },
+    "res": {
+     "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "content-length": "3046",
+      "content-type": "application/json",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none"
+     },
+     "body": {
+      "access_token": "\u003cjwt fp:4b64c169\u003e",
+      "expires_in": 900,
+      "refresh_expires_in": 1800,
+      "refresh_token": "\u003cjwt fp:d33f962b\u003e",
+      "token_type": "Bearer",
+      "id_token": "\u003cjwt fp:c6ce940b\u003e",
+      "not-before-policy": "…",
+      "session_state": "…",
+      "scope": "openid memes:read email profile"
+     }
+    },
+    "class": {
+     "family": "oauth",
+     "op": "token/password",
+     "spec": [
+      "RFC 6749 §4.3",
+      "removed in OAuth 2.1"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "res.body:access_token"
+     },
+     {
+      "token": "t2",
+      "where": "res.body:refresh_token"
+     },
+     {
+      "token": "t3",
+      "where": "res.body:id_token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   },
+   {
+    "id": "x2",
+    "capture_id": "80582-2",
+    "t0": 1.8632,
+    "t1": 1.8656,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 400,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "server/discover",
+      "content-length": "245"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "server/discover",
+      "params": {
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:47 GMT",
+      "server": "uvicorn",
+      "content-length": "113",
+      "content-type": "application/json"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "error": {
+       "code": -32600,
+       "message": "Bad Request: Unsupported protocol version: 2026-07-28"
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "server/discover",
+     "spec": [
+      "MCP 2026-07-28"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x3",
+    "capture_id": "80582-3",
+    "t0": 1.8664,
+    "t1": 1.8694,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "content-length": "163"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-11-25",
+       "capabilities": {},
+       "clientInfo": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:47 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "473"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+       "protocolVersion": "2025-11-25",
+       "capabilities": {
+        "logging": "…",
+        "prompts": "…",
+        "resources": "…",
+        "tools": {
+         "listChanged": "…"
+        },
+        "tasks": "…"
+       },
+       "serverInfo": {
+        "name": "Memes",
+        "title": "…",
+        "version": "0.1.0"
+       },
+       "instructions": "…"
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "initialize",
+     "spec": [
+      "MCP"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x4",
+    "capture_id": "80582-4",
+    "t0": 1.8702,
+    "t1": 1.8724,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 202,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "54"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "method": "notifications/initialized"
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:47 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "notifications/initialized",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x5",
+    "capture_id": "80582-5",
+    "t0": 1.8704,
+    "t1": 6.811,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "GET",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "cache-control": "no-store",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25"
+     },
+     "body": null
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:47 GMT",
+      "server": "uvicorn",
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "mcp-session-id": "4339…(32)",
+      "x-accel-buffering": "no",
+      "transfer-encoding": "chunked"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "stream",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x6",
+    "capture_id": "80582-6",
+    "t0": 1.873,
+    "t1": 1.8765,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "68"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tools/list",
+      "params": {
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:47 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "1242"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+       "tools": [
+        {
+         "name": "Memes_CaptionMeme",
+         "description": "…",
+         "inputSchema": "…",
+         "outputSchema": "…",
+         "annotations": "…",
+         "title": "…",
+         "_meta": "…"
+        },
+        {
+         "name": "Memes_MakeMeme",
+         "description": "…",
+         "inputSchema": "…",
+         "outputSchema": "…",
+         "annotations": "…",
+         "title": "…",
+         "_meta": "…"
+        }
+       ]
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/list",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x7",
+    "capture_id": "80582-7",
+    "t0": 1.8783,
+    "t1": 2.8385,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "1479"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:49 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:48Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBPmMzd5i45NiSBLCS",
+      "traceresponse": "00-759f0642e7d5610efd4b962e572b95fd-9b11d742854bc6ff-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "server": "cloudflare",
+      "x-robots-tag": "none",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "cf-cache-status": "DYNAMIC",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9faa8eb3ea98-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBQ6wV5d8oGSkPPty5",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_011NTVisgFFSBdpkYky6L6R2",
+        "name": "Memes_MakeMeme",
+        "input": "…",
+        "caller": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "tool_use",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/tool_use",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x8",
+    "capture_id": "80582-8",
+    "t0": 2.8531,
+    "t1": 2.8601,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "143"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_MakeMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:48 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "478"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "structuredContent": "…",
+       "isError": false
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x9",
+    "capture_id": "80582-9",
+    "t0": 2.8865,
+    "t1": 4.3681,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "1981"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:50 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:49Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBTnhCK3DYcGfvPhb4",
+      "traceresponse": "00-45c407c5a32bffebbe9090d1656748ce-a5fd4e32e03d555f-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "server": "cloudflare",
+      "x-robots-tag": "none",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "cf-cache-status": "DYNAMIC",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9fb088f4ea98-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBU83W3MohUKAGfWzW",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_01HCWGRHAHTam52nudYJW33j",
+        "name": "Memes_CaptionMeme",
+        "input": "…",
+        "caller": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "tool_use",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/tool_use",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x10",
+    "capture_id": "80582-10",
+    "t0": 4.3697,
+    "t1": 4.3799,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "219"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_CaptionMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:50 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "402"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": {
+       "_meta": "…",
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "isError": true
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x11",
+    "capture_id": "80582-11",
+    "t0": 4.381,
+    "t1": 5.7621,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "2556"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:51Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBaDuhU5SNBh5t4Sc9",
+      "traceresponse": "00-935f1015b9fec462ece836cbef099d36-5b73ad7cb8719328-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "server": "cloudflare",
+      "x-robots-tag": "none",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "cf-cache-status": "DYNAMIC",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9fb9ed54ea98-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBaZF2AMAoaWTETX5N",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_01Qnr1vEqS5UGzyBk869LNYm",
+        "name": "Memes_CaptionMeme",
+        "input": "…",
+        "caller": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "tool_use",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/tool_use",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x12",
+    "capture_id": "80582-12",
+    "t0": 5.7642,
+    "t1": 5.7748,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "220"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_CaptionMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:51 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "351"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "structuredContent": "…",
+       "isError": false
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x13",
+    "capture_id": "80582-13",
+    "t0": 5.7762,
+    "t1": 6.8043,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "3062"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:53 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:52Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBg972c1VaXGgKiHv6",
+      "traceresponse": "00-d3da41ea86efc5d9c80ba7d2bce1666a-75442611b4699466-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "server": "cloudflare",
+      "x-robots-tag": "none",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "cf-cache-status": "DYNAMIC",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9fc299a0ea98-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBgUC18j8jH783HDCa",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "text",
+        "text": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "end_turn",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/end_turn",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x14",
+    "capture_id": "80582-14",
+    "t0": 6.8073,
+    "t1": 6.8103,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "DELETE",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4b64c169\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "mcp-protocol-version": "2025-11-25"
+     },
+     "body": null
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "4339…(32)",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "session/end",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t1",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x15",
+    "capture_id": "80582-15",
+    "t0": 6.8192,
+    "t1": 6.8599,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/token",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "92",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "grant_type": "password",
+      "client_id": "memes-dev",
+      "username": "…",
+      "password": "…",
+      "scope": "openid"
+     }
+    },
+    "res": {
+     "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "content-length": "3006",
+      "content-type": "application/json",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none"
+     },
+     "body": {
+      "access_token": "\u003cjwt fp:f0b48225\u003e",
+      "expires_in": 900,
+      "refresh_expires_in": 1800,
+      "refresh_token": "\u003cjwt fp:aff83cb3\u003e",
+      "token_type": "Bearer",
+      "id_token": "\u003cjwt fp:ee9e6720\u003e",
+      "not-before-policy": "…",
+      "session_state": "…",
+      "scope": "openid email profile"
+     }
+    },
+    "class": {
+     "family": "oauth",
+     "op": "token/password",
+     "spec": [
+      "RFC 6749 §4.3",
+      "removed in OAuth 2.1"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "res.body:access_token"
+     },
+     {
+      "token": "t5",
+      "where": "res.body:refresh_token"
+     },
+     {
+      "token": "t6",
+      "where": "res.body:id_token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   },
+   {
+    "id": "x16",
+    "capture_id": "80582-16",
+    "t0": 6.8615,
+    "t1": 6.8637,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 400,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "server/discover",
+      "content-length": "245"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "server/discover",
+      "params": {
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-length": "113",
+      "content-type": "application/json"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "error": {
+       "code": -32600,
+       "message": "Bad Request: Unsupported protocol version: 2026-07-28"
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "server/discover",
+     "spec": [
+      "MCP 2026-07-28"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x17",
+    "capture_id": "80582-17",
+    "t0": 6.8646,
+    "t1": 6.8676,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "content-length": "163"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-11-25",
+       "capabilities": {},
+       "clientInfo": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "content-length": "473"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+       "protocolVersion": "2025-11-25",
+       "capabilities": {
+        "logging": "…",
+        "prompts": "…",
+        "resources": "…",
+        "tools": {
+         "listChanged": "…"
+        },
+        "tasks": "…"
+       },
+       "serverInfo": {
+        "name": "Memes",
+        "title": "…",
+        "version": "0.1.0"
+       },
+       "instructions": "…"
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "initialize",
+     "spec": [
+      "MCP"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x18",
+    "capture_id": "80582-18",
+    "t0": 6.8683,
+    "t1": 6.8706,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 202,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "54"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "method": "notifications/initialized"
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "notifications/initialized",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x19",
+    "capture_id": "80582-19",
+    "t0": 6.8685,
+    "t1": 6.8909,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "GET",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "cache-control": "no-store",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "mcp-protocol-version": "2025-11-25"
+     },
+     "body": null
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "mcp-session-id": "a88b…(32)",
+      "x-accel-buffering": "no",
+      "transfer-encoding": "chunked"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "stream",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x20",
+    "capture_id": "80582-20",
+    "t0": 6.8712,
+    "t1": 6.8741,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "68"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tools/list",
+      "params": {
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "content-length": "1242"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+       "tools": [
+        {
+         "name": "Memes_CaptionMeme",
+         "description": "…",
+         "inputSchema": "…",
+         "outputSchema": "…",
+         "annotations": "…",
+         "title": "…",
+         "_meta": "…"
+        },
+        {
+         "name": "Memes_MakeMeme",
+         "description": "…",
+         "inputSchema": "…",
+         "outputSchema": "…",
+         "annotations": "…",
+         "title": "…",
+         "_meta": "…"
+        }
+       ]
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/list",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x21",
+    "capture_id": "80582-21",
+    "t0": 6.8748,
+    "t1": 6.8805,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "124"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_MakeMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "content-length": "286"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+       "_meta": "…",
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "isError": true
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x22",
+    "capture_id": "80582-22",
+    "t0": 6.8813,
+    "t1": 6.888,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "158"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_CaptionMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "content-length": "289"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": {
+       "_meta": "…",
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "isError": true
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x23",
+    "capture_id": "80582-23",
+    "t0": 6.8888,
+    "t1": 6.8905,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "DELETE",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:f0b48225\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "mcp-protocol-version": "2025-11-25"
+     },
+     "body": null
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "a88b…(32)",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "session/end",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t4",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x24",
+    "capture_id": "80582-24",
+    "t0": 6.9006,
+    "t1": 6.9325,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/token",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "120",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "grant_type": "password",
+      "client_id": "memes-dev",
+      "username": "…",
+      "password": "…",
+      "scope": "openid memes:read offline_access"
+     }
+    },
+    "res": {
+     "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "content-length": "3103",
+      "content-type": "application/json",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none"
+     },
+     "body": {
+      "access_token": "\u003cjwt fp:c374c103\u003e",
+      "expires_in": 900,
+      "refresh_expires_in": 604800,
+      "refresh_token": "\u003cjwt fp:3bc2ee9e\u003e",
+      "token_type": "Bearer",
+      "id_token": "\u003cjwt fp:fc0fa811\u003e",
+      "not-before-policy": "…",
+      "session_state": "…",
+      "scope": "openid memes:read email profile offline_access"
+     }
+    },
+    "class": {
+     "family": "oauth",
+     "op": "token/password",
+     "spec": [
+      "RFC 6749 §4.3",
+      "removed in OAuth 2.1"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t7",
+      "where": "res.body:access_token"
+     },
+     {
+      "token": "t8",
+      "where": "res.body:refresh_token"
+     },
+     {
+      "token": "t9",
+      "where": "res.body:id_token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   },
+   {
+    "id": "x25",
+    "capture_id": "80582-25",
+    "t0": 6.9407,
+    "t1": 6.9497,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/token",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "788",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "grant_type": "refresh_token",
+      "client_id": "memes-dev",
+      "refresh_token": "\u003cjwt fp:3bc2ee9e\u003e"
+     }
+    },
+    "res": {
+     "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "content-length": "3103",
+      "content-type": "application/json",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none"
+     },
+     "body": {
+      "access_token": "\u003cjwt fp:4fa825d1\u003e",
+      "expires_in": 900,
+      "refresh_expires_in": 604800,
+      "refresh_token": "\u003cjwt fp:8212119c\u003e",
+      "token_type": "Bearer",
+      "id_token": "\u003cjwt fp:56dee583\u003e",
+      "not-before-policy": "…",
+      "session_state": "…",
+      "scope": "openid memes:read email profile offline_access"
+     }
+    },
+    "class": {
+     "family": "oauth",
+     "op": "token/refresh_token",
+     "spec": [
+      "RFC 6749 §6"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t8",
+      "where": "req.body:refresh_token"
+     },
+     {
+      "token": "t10",
+      "where": "res.body:access_token"
+     },
+     {
+      "token": "t11",
+      "where": "res.body:refresh_token"
+     },
+     {
+      "token": "t12",
+      "where": "res.body:id_token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   },
+   {
+    "id": "x26",
+    "capture_id": "80582-26",
+    "t0": 6.952,
+    "t1": 6.9545,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 400,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "server/discover",
+      "content-length": "245"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "server/discover",
+      "params": {
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-length": "113",
+      "content-type": "application/json"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "error": {
+       "code": -32600,
+       "message": "Bad Request: Unsupported protocol version: 2026-07-28"
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "server/discover",
+     "spec": [
+      "MCP 2026-07-28"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x27",
+    "capture_id": "80582-27",
+    "t0": 6.9552,
+    "t1": 6.9582,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "content-length": "163"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "initialize",
+      "params": {
+       "protocolVersion": "2025-11-25",
+       "capabilities": {},
+       "clientInfo": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "content-length": "473"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+       "protocolVersion": "2025-11-25",
+       "capabilities": {
+        "logging": "…",
+        "prompts": "…",
+        "resources": "…",
+        "tools": {
+         "listChanged": "…"
+        },
+        "tasks": "…"
+       },
+       "serverInfo": {
+        "name": "Memes",
+        "title": "…",
+        "version": "0.1.0"
+       },
+       "instructions": "…"
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "initialize",
+     "spec": [
+      "MCP"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x28",
+    "capture_id": "80582-28",
+    "t0": 6.9589,
+    "t1": 6.9656,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 202,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "54"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "method": "notifications/initialized"
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "notifications/initialized",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x29",
+    "capture_id": "80582-29",
+    "t0": 6.9603,
+    "t1": 11.2514,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "GET",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "cache-control": "no-store",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "mcp-protocol-version": "2025-11-25"
+     },
+     "body": null
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "mcp-session-id": "72e3…(32)",
+      "x-accel-buffering": "no",
+      "transfer-encoding": "chunked"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "stream",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x30",
+    "capture_id": "80582-30",
+    "t0": 6.9662,
+    "t1": 6.9689,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "68"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tools/list",
+      "params": {
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:52 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "content-length": "1242"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+       "tools": [
+        {
+         "name": "Memes_CaptionMeme",
+         "description": "…",
+         "inputSchema": "…",
+         "outputSchema": "…",
+         "annotations": "…",
+         "title": "…",
+         "_meta": "…"
+        },
+        {
+         "name": "Memes_MakeMeme",
+         "description": "…",
+         "inputSchema": "…",
+         "outputSchema": "…",
+         "annotations": "…",
+         "title": "…",
+         "_meta": "…"
+        }
+       ]
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/list",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x31",
+    "capture_id": "80582-31",
+    "t0": 6.9705,
+    "t1": 8.4085,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "1479"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:54 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:53Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBmU57yzsaJPT9stFY",
+      "traceresponse": "00-3cd49663b5fd5fce1af15f042dc265f3-042e45bb974f9b0c-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "server": "cloudflare",
+      "cf-cache-status": "DYNAMIC",
+      "x-robots-tag": "none",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9fca69072be4-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBmnvfhVqp7gCQ7jWk",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_01YRo9MrRJsGpM4cURrDCmoF",
+        "name": "Memes_MakeMeme",
+        "input": "…",
+        "caller": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "tool_use",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/tool_use",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x32",
+    "capture_id": "80582-32",
+    "t0": 8.4101,
+    "t1": 8.4199,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "143"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_MakeMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:54 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "content-length": "464"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "structuredContent": "…",
+       "isError": false
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x33",
+    "capture_id": "80582-33",
+    "t0": 8.4209,
+    "t1": 10.0405,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "1974"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:56 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:55Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBsRVt9R9536QSyzyP",
+      "traceresponse": "00-237a8e7f830bd12c6a3eef81c4f35c17-49eaf5676a0574c8-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "server": "cloudflare",
+      "cf-cache-status": "DYNAMIC",
+      "x-robots-tag": "none",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9fd32e6b2be4-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBskbP5BF345vVRpy2",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "toolu_019svBLwoE73fDFgbuNPwUiB",
+        "name": "Memes_CaptionMeme",
+        "input": "…",
+        "caller": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "tool_use",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/tool_use",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x34",
+    "capture_id": "80582-34",
+    "t0": 10.0422,
+    "t1": 10.0531,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "POST",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "mcp-protocol-version": "2025-11-25",
+      "content-length": "229"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "tools/call",
+      "params": {
+       "name": "Memes_CaptionMeme",
+       "arguments": "…",
+       "_meta": "…"
+      }
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:55 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "content-length": "369"
+     },
+     "body": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": {
+       "content": [
+        {
+         "type": "text",
+         "text": "…"
+        }
+       ],
+       "structuredContent": "…",
+       "isError": false
+      }
+     }
+    },
+    "class": {
+     "family": "mcp",
+     "op": "tools/call",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x35",
+    "capture_id": "80582-35",
+    "t0": 10.0547,
+    "t1": 11.2436,
+    "from": "pytest",
+    "to": "api-anthropic-com",
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "api.anthropic.com",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "x-stainless-timeout": "600",
+      "x-stainless-retry-count": "0",
+      "x-stainless-read-timeout": "600",
+      "accept": "application/json",
+      "content-type": "application/json",
+      "user-agent": "AsyncAnthropic/Python 1.11.0",
+      "x-stainless-lang": "python",
+      "x-stainless-package-version": "1.11.0",
+      "x-stainless-os": "MacOS",
+      "x-stainless-arch": "arm64",
+      "x-stainless-runtime": "CPython",
+      "x-stainless-runtime-version": "3.13.0",
+      "x-api-key": "sk-a…(106)",
+      "x-stainless-async": "async:asyncio",
+      "anthropic-version": "2023-06-01",
+      "content-length": "2498"
+     },
+     "body": {
+      "max_tokens": "…",
+      "messages": "…",
+      "model": "claude-sonnet-5-5",
+      "system": "…",
+      "tools": [
+       {
+        "name": "Memes_CaptionMeme",
+        "description": "…",
+        "input_schema": "…"
+       },
+       {
+        "name": "Memes_MakeMeme",
+        "description": "…",
+        "input_schema": "…"
+       }
+      ]
+     }
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:57 GMT",
+      "content-type": "application/json",
+      "transfer-encoding": "chunked",
+      "connection": "keep-alive",
+      "anthropic-ratelimit-input-tokens-limit": "5000…(7)",
+      "anthropic-ratelimit-input-tokens-remaining": "4999…(7)",
+      "anthropic-ratelimit-input-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-output-tokens-limit": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-remaining": "1000…(7)",
+      "anthropic-ratelimit-output-tokens-reset": "2026…(20)",
+      "anthropic-ratelimit-requests-limit": "5000",
+      "anthropic-ratelimit-requests-remaining": "4999",
+      "anthropic-ratelimit-requests-reset": "2026-10-11T05:56:56Z",
+      "anthropic-ratelimit-tokens-limit": "6000…(7)",
+      "anthropic-ratelimit-tokens-remaining": "5999…(7)",
+      "anthropic-ratelimit-tokens-reset": "2026…(20)",
+      "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+      "request-id": "req_011CfuwBzPTfc9egt3Ss9o8f",
+      "traceresponse": "00-fe6417a8975acb51359f60248069b7ef-380c75aeb3ee7fe7-01",
+      "anthropic-organization-id": "58e69175-7268-4dc8-9180-9151c5ce2279",
+      "anthropic-workspace-id": "wrkspc_01QZ1wTprW8wWz8oVQ7HLTo8",
+      "vary": "Accept-Encoding",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "server": "cloudflare",
+      "cf-cache-status": "DYNAMIC",
+      "x-robots-tag": "none",
+      "content-encoding": "gzip",
+      "cf-ray": "a48b9fdd5fe02be4-DFW"
+     },
+     "body": {
+      "model": "claude-sonnet-5-5",
+      "id": "msg_011CfuwBzjYGRWJxUZpfALKe",
+      "type": "message",
+      "role": "…",
+      "content": [
+       {
+        "type": "text",
+        "text": "…"
+       }
+      ],
+      "container": "…",
+      "stop_reason": "end_turn",
+      "stop_sequence": "…",
+      "stop_details": "…",
+      "usage": "…",
+      "diagnostics": "…"
+     }
+    },
+    "class": {
+     "family": "llm",
+     "op": "messages/end_turn",
+     "spec": []
+    },
+    "tokens": [],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x36",
+    "capture_id": "80582-36",
+    "t0": 11.2461,
+    "t1": 11.2501,
+    "from": "pytest",
+    "to": "127-0-0-1-8001",
+    "method": "DELETE",
+    "url": "http://127.0.0.1:8001/mcp",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "127.0.0.1:8001",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx2/2.13.1",
+      "authorization": "Bearer \u003cjwt fp:4fa825d1\u003e",
+      "accept": "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "mcp-protocol-version": "2025-11-25"
+     },
+     "body": null
+    },
+    "res": {
+     "headers": {
+      "date": "Sun, 11 Oct 2026 05:56:57 GMT",
+      "server": "uvicorn",
+      "content-type": "application/json",
+      "mcp-session-id": "72e3…(32)",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "mcp",
+     "op": "session/end",
+     "spec": [
+      "MCP 2025-11-25"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t10",
+      "where": "req.headers:authorization"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx2"
+   },
+   {
+    "id": "x37",
+    "capture_id": "80582-37",
+    "t0": 11.2625,
+    "t1": 11.306,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/token",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "120",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "grant_type": "password",
+      "client_id": "memes-dev",
+      "username": "…",
+      "password": "…",
+      "scope": "openid memes:read offline_access"
+     }
+    },
+    "res": {
+     "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "content-length": "3103",
+      "content-type": "application/json",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none"
+     },
+     "body": {
+      "access_token": "\u003cjwt fp:ae3055da\u003e",
+      "expires_in": 900,
+      "refresh_expires_in": 604800,
+      "refresh_token": "\u003cjwt fp:828cc164\u003e",
+      "token_type": "Bearer",
+      "id_token": "\u003cjwt fp:52549226\u003e",
+      "not-before-policy": "…",
+      "session_state": "…",
+      "scope": "openid memes:read email profile offline_access"
+     }
+    },
+    "class": {
+     "family": "oauth",
+     "op": "token/password",
+     "spec": [
+      "RFC 6749 §4.3",
+      "removed in OAuth 2.1"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t13",
+      "where": "res.body:access_token"
+     },
+     {
+      "token": "t14",
+      "where": "res.body:refresh_token"
+     },
+     {
+      "token": "t15",
+      "where": "res.body:id_token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   },
+   {
+    "id": "x38",
+    "capture_id": "80582-38",
+    "t0": 11.313,
+    "t1": 11.3197,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/revoke",
+    "status": 200,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "755",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "token": "\u003cjwt fp:828cc164\u003e",
+      "client_id": "memes-dev"
+     }
+    },
+    "res": {
+     "headers": {
+      "content-security-policy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none",
+      "content-length": "0"
+     },
+     "body": null
+    },
+    "class": {
+     "family": "oauth",
+     "op": "revoke",
+     "spec": [
+      "RFC 7009"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t14",
+      "where": "req.body:token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   },
+   {
+    "id": "x39",
+    "capture_id": "80582-39",
+    "t0": 11.3239,
+    "t1": 11.329,
+    "from": "pytest",
+    "to": "localhost-8080",
+    "method": "POST",
+    "url": "http://localhost:8080/realms/memes/protocol/openid-connect/token",
+    "status": 400,
+    "req": {
+     "headers": {
+      "host": "localhost:8080",
+      "accept": "*/*",
+      "accept-encoding": "gzip, deflate",
+      "connection": "keep-alive",
+      "user-agent": "python-httpx/0.28.1",
+      "content-length": "788",
+      "content-type": "application/x-www-form-urlencoded"
+     },
+     "body": {
+      "grant_type": "refresh_token",
+      "client_id": "memes-dev",
+      "refresh_token": "\u003cjwt fp:828cc164\u003e"
+     }
+    },
+    "res": {
+     "headers": {
+      "cache-control": "no-store",
+      "pragma": "no-cache",
+      "content-length": "78",
+      "content-type": "application/json",
+      "referrer-policy": "no-referrer",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-robots-tag": "none"
+     },
+     "body": {
+      "error": "invalid_grant",
+      "error_description": "Offline user session not found"
+     }
+    },
+    "class": {
+     "family": "oauth",
+     "op": "token/refresh_token",
+     "spec": [
+      "RFC 6749 §6"
+     ]
+    },
+    "tokens": [
+     {
+      "token": "t14",
+      "where": "req.body:refresh_token"
+     }
+    ],
+    "seen_by": "run-hooks",
+    "confidence": "observed",
+    "lib": "httpx"
+   }
+  ],
+  "tokens": [
+   {
+    "id": "t1",
+    "fingerprint": "fp:4b64c169",
+    "type": "access",
+    "format": "jwt",
+    "first_seen": "x1",
+    "seen_in": [
+     "x1",
+     "x2",
+     "x3",
+     "x4",
+     "x5",
+     "x6",
+     "x8",
+     "x10",
+     "x12",
+     "x14"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699108,
+     "iat": 1791698208,
+     "jti": "onrtro:8a825f87-dd89-f2b4-7e7f-07a4a823c15f",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://127.0.0.1:8001/mcp",
+     "sub": "fp:d30070b6",
+     "typ": "Bearer",
+     "azp": "memes-dev",
+     "sid": "fp:c72bad5c",
+     "scope": "openid memes:read email profile",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://127.0.0.1:8001/mcp"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "profile"
+    ],
+    "iat": 1791698208,
+    "exp": 1791699108
+   },
+   {
+    "id": "t2",
+    "fingerprint": "fp:d33f962b",
+    "type": "refresh",
+    "format": "jwt",
+    "first_seen": "x1",
+    "seen_in": [
+     "x1"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "HS512",
+     "typ": "JWT",
+     "kid": "bfd0b3e1-f0b8-42f7-af1f-bc151f31d58f"
+    },
+    "claims": {
+     "exp": 1791700008,
+     "iat": 1791698208,
+     "jti": "fc6bd6f3-956b-9043-25c8-e85ff7c8ef3d",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://localhost:8080/realms/memes",
+     "sub": "fp:d30070b6",
+     "typ": "Refresh",
+     "azp": "memes-dev",
+     "sid": "fp:c72bad5c",
+     "scope": "openid memes:read email memes-mcp basic profile",
+     "aud_x": "http://127.0.0.1:8001/mcp",
+     "prov": "default"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://localhost:8080/realms/memes"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "memes-mcp",
+     "basic",
+     "profile"
+    ],
+    "iat": 1791698208,
+    "exp": 1791700008
+   },
+   {
+    "id": "t3",
+    "fingerprint": "fp:c6ce940b",
+    "type": "id",
+    "format": "jwt",
+    "first_seen": "x1",
+    "seen_in": [
+     "x1"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699108,
+     "iat": 1791698208,
+     "jti": "c0664ae1-5307-75dc-ef9a-e18775c477dd",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "memes-dev",
+     "sub": "fp:d30070b6",
+     "typ": "ID",
+     "azp": "memes-dev",
+     "sid": "fp:c72bad5c",
+     "at_hash": "S2TB…(22)",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "memes-dev"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [],
+    "iat": 1791698208,
+    "exp": 1791699108
+   },
+   {
+    "id": "t4",
+    "fingerprint": "fp:f0b48225",
+    "type": "access",
+    "format": "jwt",
+    "first_seen": "x15",
+    "seen_in": [
+     "x15",
+     "x16",
+     "x17",
+     "x18",
+     "x19",
+     "x20",
+     "x21",
+     "x22",
+     "x23"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699113,
+     "iat": 1791698213,
+     "jti": "onrtro:1f43f394-5f82-1202-eeef-8227e0481946",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://127.0.0.1:8001/mcp",
+     "sub": "fp:d30070b6",
+     "typ": "Bearer",
+     "azp": "memes-dev",
+     "sid": "fp:f41a9f4b",
+     "scope": "openid email profile",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://127.0.0.1:8001/mcp"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "email",
+     "profile"
+    ],
+    "iat": 1791698213,
+    "exp": 1791699113
+   },
+   {
+    "id": "t5",
+    "fingerprint": "fp:aff83cb3",
+    "type": "refresh",
+    "format": "jwt",
+    "first_seen": "x15",
+    "seen_in": [
+     "x15"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "HS512",
+     "typ": "JWT",
+     "kid": "bfd0b3e1-f0b8-42f7-af1f-bc151f31d58f"
+    },
+    "claims": {
+     "exp": 1791700013,
+     "iat": 1791698213,
+     "jti": "7039bde1-ded6-b3bb-7256-44b131c01274",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://localhost:8080/realms/memes",
+     "sub": "fp:d30070b6",
+     "typ": "Refresh",
+     "azp": "memes-dev",
+     "sid": "fp:f41a9f4b",
+     "scope": "openid email memes-mcp basic profile",
+     "aud_x": "http://127.0.0.1:8001/mcp",
+     "prov": "default"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://localhost:8080/realms/memes"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "email",
+     "memes-mcp",
+     "basic",
+     "profile"
+    ],
+    "iat": 1791698213,
+    "exp": 1791700013
+   },
+   {
+    "id": "t6",
+    "fingerprint": "fp:ee9e6720",
+    "type": "id",
+    "format": "jwt",
+    "first_seen": "x15",
+    "seen_in": [
+     "x15"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699113,
+     "iat": 1791698213,
+     "jti": "5fd752ce-be78-69ff-d22f-bc6ac4c28269",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "memes-dev",
+     "sub": "fp:d30070b6",
+     "typ": "ID",
+     "azp": "memes-dev",
+     "sid": "fp:f41a9f4b",
+     "at_hash": "8LSC…(22)",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "memes-dev"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [],
+    "iat": 1791698213,
+    "exp": 1791699113
+   },
+   {
+    "id": "t7",
+    "fingerprint": "fp:c374c103",
+    "type": "access",
+    "format": "jwt",
+    "first_seen": "x24",
+    "seen_in": [
+     "x24"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699113,
+     "iat": 1791698213,
+     "jti": "ofrtro:719eb528-9b88-539a-f6f5-d3e715f66123",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://127.0.0.1:8001/mcp",
+     "sub": "fp:d30070b6",
+     "typ": "Bearer",
+     "azp": "memes-dev",
+     "sid": "fp:8851b096",
+     "scope": "openid memes:read email profile offline_access",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://127.0.0.1:8001/mcp"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "profile",
+     "offline_access"
+    ],
+    "iat": 1791698213,
+    "exp": 1791699113
+   },
+   {
+    "id": "t8",
+    "fingerprint": "fp:3bc2ee9e",
+    "type": "refresh",
+    "format": "jwt",
+    "first_seen": "x24",
+    "seen_in": [
+     "x24",
+     "x25"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "HS512",
+     "typ": "JWT",
+     "kid": "bfd0b3e1-f0b8-42f7-af1f-bc151f31d58f"
+    },
+    "claims": {
+     "exp": 1792303013,
+     "iat": 1791698213,
+     "jti": "eb6853f8-2608-b0d6-08cb-6add5fc53c53",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://localhost:8080/realms/memes",
+     "sub": "fp:d30070b6",
+     "typ": "Offline",
+     "azp": "memes-dev",
+     "sid": "fp:8851b096",
+     "scope": "openid memes:read email memes-mcp basic profile offline_access",
+     "aud_x": "http://127.0.0.1:8001/mcp",
+     "prov": "default"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://localhost:8080/realms/memes"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "memes-mcp",
+     "basic",
+     "profile",
+     "offline_access"
+    ],
+    "iat": 1791698213,
+    "exp": 1792303013
+   },
+   {
+    "id": "t9",
+    "fingerprint": "fp:fc0fa811",
+    "type": "id",
+    "format": "jwt",
+    "first_seen": "x24",
+    "seen_in": [
+     "x24"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699113,
+     "iat": 1791698213,
+     "jti": "34b23151-0cb5-08b5-f5ec-e66240168751",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "memes-dev",
+     "sub": "fp:d30070b6",
+     "typ": "ID",
+     "azp": "memes-dev",
+     "sid": "fp:8851b096",
+     "at_hash": "w3TB…(22)",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "memes-dev"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [],
+    "iat": 1791698213,
+    "exp": 1791699113
+   },
+   {
+    "id": "t10",
+    "fingerprint": "fp:4fa825d1",
+    "type": "access",
+    "format": "jwt",
+    "first_seen": "x25",
+    "seen_in": [
+     "x25",
+     "x26",
+     "x27",
+     "x28",
+     "x29",
+     "x30",
+     "x32",
+     "x34",
+     "x36"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699113,
+     "iat": 1791698213,
+     "jti": "ofrtrt:f26bdd23-6876-d79e-1f29-a0814863a199",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://127.0.0.1:8001/mcp",
+     "sub": "fp:d30070b6",
+     "typ": "Bearer",
+     "azp": "memes-dev",
+     "sid": "fp:8851b096",
+     "scope": "openid memes:read email profile offline_access",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://127.0.0.1:8001/mcp"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "profile",
+     "offline_access"
+    ],
+    "iat": 1791698213,
+    "exp": 1791699113
+   },
+   {
+    "id": "t11",
+    "fingerprint": "fp:8212119c",
+    "type": "refresh",
+    "format": "jwt",
+    "first_seen": "x25",
+    "seen_in": [
+     "x25"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "HS512",
+     "typ": "JWT",
+     "kid": "bfd0b3e1-f0b8-42f7-af1f-bc151f31d58f"
+    },
+    "claims": {
+     "exp": 1792303013,
+     "iat": 1791698213,
+     "jti": "29d5aaf6-e4db-8f36-4b7d-4c35cb6cee2d",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://localhost:8080/realms/memes",
+     "sub": "fp:d30070b6",
+     "typ": "Offline",
+     "azp": "memes-dev",
+     "sid": "fp:8851b096",
+     "scope": "openid memes:read email memes-mcp basic profile offline_access",
+     "aud_x": "http://127.0.0.1:8001/mcp",
+     "prov": "default"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://localhost:8080/realms/memes"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "memes-mcp",
+     "basic",
+     "profile",
+     "offline_access"
+    ],
+    "iat": 1791698213,
+    "exp": 1792303013
+   },
+   {
+    "id": "t12",
+    "fingerprint": "fp:56dee583",
+    "type": "id",
+    "format": "jwt",
+    "first_seen": "x25",
+    "seen_in": [
+     "x25"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699113,
+     "iat": 1791698213,
+     "jti": "113af182-c2d4-db9a-750d-6f0dd7c923c8",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "memes-dev",
+     "sub": "fp:d30070b6",
+     "typ": "ID",
+     "azp": "memes-dev",
+     "sid": "fp:8851b096",
+     "at_hash": "T6gl…(22)",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "memes-dev"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [],
+    "iat": 1791698213,
+    "exp": 1791699113
+   },
+   {
+    "id": "t13",
+    "fingerprint": "fp:ae3055da",
+    "type": "access",
+    "format": "jwt",
+    "first_seen": "x37",
+    "seen_in": [
+     "x37"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699117,
+     "iat": 1791698217,
+     "jti": "ofrtro:0d4610a7-008f-76cf-0d73-b979dc874214",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://127.0.0.1:8001/mcp",
+     "sub": "fp:d30070b6",
+     "typ": "Bearer",
+     "azp": "memes-dev",
+     "sid": "fp:b9b52c83",
+     "scope": "openid memes:read email profile offline_access",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://127.0.0.1:8001/mcp"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "profile",
+     "offline_access"
+    ],
+    "iat": 1791698217,
+    "exp": 1791699117
+   },
+   {
+    "id": "t14",
+    "fingerprint": "fp:828cc164",
+    "type": "refresh",
+    "format": "jwt",
+    "first_seen": "x37",
+    "seen_in": [
+     "x37",
+     "x38",
+     "x39"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "HS512",
+     "typ": "JWT",
+     "kid": "bfd0b3e1-f0b8-42f7-af1f-bc151f31d58f"
+    },
+    "claims": {
+     "exp": 1792303017,
+     "iat": 1791698217,
+     "jti": "11322175-9e8f-5565-6c75-7b5c857ee359",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "http://localhost:8080/realms/memes",
+     "sub": "fp:d30070b6",
+     "typ": "Offline",
+     "azp": "memes-dev",
+     "sid": "fp:b9b52c83",
+     "scope": "openid memes:read email memes-mcp basic profile offline_access",
+     "aud_x": "http://127.0.0.1:8001/mcp",
+     "prov": "default"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "http://localhost:8080/realms/memes"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [
+     "openid",
+     "memes:read",
+     "email",
+     "memes-mcp",
+     "basic",
+     "profile",
+     "offline_access"
+    ],
+    "iat": 1791698217,
+    "exp": 1792303017
+   },
+   {
+    "id": "t15",
+    "fingerprint": "fp:52549226",
+    "type": "id",
+    "format": "jwt",
+    "first_seen": "x37",
+    "seen_in": [
+     "x37"
+    ],
+    "verified": false,
+    "confidence": "decoded",
+    "header": {
+     "alg": "RS256",
+     "typ": "JWT",
+     "kid": "K4RimLbPcLJWEr3jtxOVeXJgWzwXz7o8n5batZ-LvEw"
+    },
+    "claims": {
+     "exp": 1791699117,
+     "iat": 1791698217,
+     "jti": "d5447b87-e88e-bf1d-8334-c71d0817deca",
+     "iss": "http://localhost:8080/realms/memes",
+     "aud": "memes-dev",
+     "sub": "fp:d30070b6",
+     "typ": "ID",
+     "azp": "memes-dev",
+     "sid": "fp:b9b52c83",
+     "at_hash": "rjBV…(22)",
+     "email_verified": true,
+     "name": "fp:f5996e41",
+     "preferred_username": "fp:dfa31118",
+     "given_name": "fp:d2607ab3",
+     "family_name": "fp:b512d97e",
+     "email": "fp:3e6ad2ce"
+    },
+    "issuer": "http://localhost:8080/realms/memes",
+    "audience": [
+     "memes-dev"
+    ],
+    "subject": "fp:d30070b6",
+    "client": "memes-dev",
+    "scope": [],
+    "iat": 1791698217,
+    "exp": 1791699117
+   }
+  ],
+  "sessions": [],
+  "checks": [],
+  "findings": [
+   {
+    "rule": "OAUTH-ROPC",
+    "severity": "info",
+    "title": "Password grant in use",
+    "exchanges": [
+     "x1",
+     "x15",
+     "x24",
+     "x37"
+    ],
+    "detail": "The client sends the user's password to the token endpoint. OAuth 2.1 removes this grant.",
+    "fix": "Use the authorization code flow with PKCE for users; keep the password grant to dev scripts.",
+    "confidence": "observed"
+   },
+   {
+    "rule": "MCP-VERSION-FALLBACK",
+    "severity": "info",
+    "title": "MCP client probed an unsupported protocol version",
+    "exchanges": [
+     "x2",
+     "x16",
+     "x26"
+    ],
+    "detail": "The server answered 400 to a newer protocol version, and the client fell back. Not an auth failure.",
+    "fix": "Nothing to fix unless the extra round trip matters; upgrade the server to skip it.",
+    "confidence": "observed"
+   },
+   {
+    "rule": "HOST-ALIAS",
+    "severity": "info",
+    "title": "Local services are addressed as both localhost and 127.0.0.1",
+    "exchanges": [
+     "x1",
+     "x2"
+    ],
+    "detail": "`iss` and `aud` are compared as exact strings, so the same service under two names breaks validation.",
+    "fix": "Pick one host name per service and use it in config, tokens and redirect URIs.",
+    "confidence": "observed"
+   }
+  ],
+  "logs": [
+   {
+    "id": "capture",
+    "title": "authtrace capture: 39 exchange(s), redacted",
+    "text": "[  1.806s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:4b64c169,fp:c6ce940b,fp:d33f962b\n[  1.863s] pytest       POST   http://127.0.0.1:8001/mcp → 400  tokens fp:4b64c169\n[  1.866s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  1.870s] pytest       POST   http://127.0.0.1:8001/mcp → 202  tokens fp:4b64c169\n[  1.870s] pytest       GET    http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  1.873s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  1.878s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  2.853s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  2.886s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  4.370s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  4.381s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  5.764s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  5.776s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  6.807s] pytest       DELETE http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  6.819s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:aff83cb3,fp:ee9e6720,fp:f0b48225\n[  6.862s] pytest       POST   http://127.0.0.1:8001/mcp → 400  tokens fp:f0b48225\n[  6.865s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.868s] pytest       POST   http://127.0.0.1:8001/mcp → 202  tokens fp:f0b48225\n[  6.869s] pytest       GET    http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.871s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.875s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.881s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.889s] pytest       DELETE http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.901s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:3bc2ee9e,fp:c374c103,fp:fc0fa811\n[  6.941s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:3bc2ee9e,fp:4fa825d1,fp:56dee583,fp:8212119c\n[  6.952s] pytest       POST   http://127.0.0.1:8001/mcp → 400  tokens fp:4fa825d1\n[  6.955s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  6.959s] pytest       POST   http://127.0.0.1:8001/mcp → 202  tokens fp:4fa825d1\n[  6.960s] pytest       GET    http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  6.966s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  6.971s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  8.410s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  8.421s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[ 10.042s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[ 10.055s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[ 11.246s] pytest       DELETE http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[ 11.262s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:52549226,fp:828cc164,fp:ae3055da\n[ 11.313s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/revoke → 200  tokens fp:828cc164\n[ 11.324s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 400  tokens fp:828cc164",
+    "confidence": "observed"
+   }
+  ],
+  "layout": {
+   "viewbox": [
+    1080,
+    620
+   ],
+   "boundaries": {
+    "machine": [
+     24,
+     38,
+     642,
+     556
+    ]
+   },
+   "nodes": {
+    "loop": [
+     52,
+     134,
+     196,
+     44
+    ],
+    "gateway": [
+     52,
+     186,
+     196,
+     64
+    ],
+    "llm": [
+     52,
+     258,
+     196,
+     44
+    ],
+    "worker": [
+     52,
+     310,
+     196,
+     44
+    ],
+    "grants": [
+     52,
+     362,
+     196,
+     64
+    ],
+    "pytest": [
+     40,
+     70,
+     220,
+     368
+    ],
+    "kc-token": [
+     442,
+     134,
+     196,
+     30
+    ],
+    "kc-revoke": [
+     442,
+     172,
+     196,
+     30
+    ],
+    "kc-certs": [
+     442,
+     210,
+     196,
+     30
+    ],
+    "localhost-8080": [
+     430,
+     70,
+     220,
+     182
+    ],
+    "mw": [
+     442,
+     362,
+     196,
+     64
+    ],
+    "sess": [
+     442,
+     434,
+     196,
+     44
+    ],
+    "tools": [
+     442,
+     486,
+     196,
+     64
+    ],
+    "127-0-0-1-8001": [
+     430,
+     298,
+     220,
+     264
+    ],
+    "api-anthropic-com": [
+     820,
+     70,
+     220,
+     88
+    ]
+   },
+   "edges": {
+    "pytest--localhost-8080": {
+     "path": [
+      [
+       260,
+       112.66666666666666
+      ],
+      [
+       274,
+       112.66666666666666
+      ],
+      [
+       274,
+       102.0
+      ],
+      [
+       430,
+       102.0
+      ]
+     ],
+     "label": [
+      284,
+      96.0
+     ]
+    },
+    "pytest--127-0-0-1-8001": {
+     "path": [
+      [
+       260,
+       155.33333333333331
+      ],
+      [
+       288,
+       155.33333333333331
+      ],
+      [
+       288,
+       330.0
+      ],
+      [
+       430,
+       330.0
+      ]
+     ],
+     "label": [
+      298,
+      324.0
+     ]
+    },
+    "pytest--api-anthropic-com": {
+     "path": [
+      [
+       150.0,
+       438
+      ],
+      [
+       150.0,
+       580
+      ],
+      [
+       930.0,
+       580
+      ],
+      [
+       930.0,
+       158
+      ]
+     ],
+     "label": [
+      162.0,
+      575
+     ]
+    },
+    "127-0-0-1-8001--localhost-8080--keys": {
+     "path": [
+      [
+       595.0,
+       298
+      ],
+      [
+       595.0,
+       252
+      ]
+     ],
+     "label": [
+      601.0,
+      275.0
+     ]
+    },
+    "loop-llm": {
+     "path": [
+      [
+       248,
+       156.0
+      ],
+      [
+       254.0,
+       156.0
+      ],
+      [
+       254.0,
+       280.0
+      ],
+      [
+       248,
+       280.0
+      ]
+     ],
+     "label": [
+      266,
+      222.0
+     ]
+    },
+    "loop-gateway": {
+     "path": [
+      [
+       248,
+       156.0
+      ],
+      [
+       254.0,
+       156.0
+      ],
+      [
+       254.0,
+       208.0
+      ],
+      [
+       248,
+       208.0
+      ]
+     ],
+     "label": [
+      266,
+      186.0
+     ]
+    },
+    "worker-grants": {
+     "path": [
+      [
+       248,
+       332.0
+      ],
+      [
+       254.0,
+       332.0
+      ],
+      [
+       254.0,
+       384.0
+      ],
+      [
+       248,
+       384.0
+      ]
+     ],
+     "label": [
+      266,
+      362.0
+     ]
+    },
+    "worker-loop": {
+     "path": [
+      [
+       248,
+       332.0
+      ],
+      [
+       254.0,
+       332.0
+      ],
+      [
+       254.0,
+       156.0
+      ],
+      [
+       248,
+       156.0
+      ]
+     ],
+     "label": [
+      266,
+      248.0
+     ]
+    },
+    "mw-sess": {
+     "path": [
+      [
+       638,
+       384.0
+      ],
+      [
+       644.0,
+       384.0
+      ],
+      [
+       644.0,
+       456.0
+      ],
+      [
+       638,
+       456.0
+      ]
+     ],
+     "label": [
+      656,
+      424.0
+     ]
+    },
+    "sess-tools": {
+     "path": [
+      [
+       638,
+       456.0
+      ],
+      [
+       644.0,
+       456.0
+      ],
+      [
+       644.0,
+       508.0
+      ],
+      [
+       638,
+       508.0
+      ]
+     ],
+     "label": [
+      656,
+      486.0
+     ]
+    }
+   }
+  },
+  "narrative": {
+   "header": {
+    "page_title": "memes-agent live run",
+    "eyebrow": "memes-agent · authtrace · after lessons 5 and 6a",
+    "title": "The live test run, hop by hop",
+    "intro": "`uv run pytest -m live` ran four tests on 2026-10-11 at 00:56, and authtrace captured every HTTP call the pytest process made (strict redaction). Three tours replay them: **One meme** follows the end-to-end test through Keycloak, memes-mcp and Claude; **No permission** shows a token with the right audience but no `memes:read`; **Background** shows an offline grant being redeemed, rotated, revoked and refused. memes-mcp was already running, so its side (token validation, the JWKS fetch) is explained from its code, not seen on the wire. The browser login isn't in this run.",
+    "chip": "4 tests · exit 0 · 11.7 s",
+    "diagram_alt": "pytest, playing the memes-dev client, talks to Keycloak (authorization server), memes-mcp (resource server) and the Claude API. Inside pytest sit the agent loop, MCPToolGateway, ClaudeLLM, the worker and GrantStore; inside memes-mcp sit the auth middleware, the session manager and the tools. The JWKS hop from memes-mcp to Keycloak is dashed because it wasn't captured."
+   },
+   "goals": {
+    "1": [
+     "OAuth roles",
+     "Map resource owner, client, authorization server and resource server onto running code."
+    ],
+    "2": [
+     "Tokens and claims",
+     "What's inside each token, and who checks iss, aud, exp, scope and sub."
+    ],
+    "3": [
+     "MCP resource server",
+     "An MCP server built with Arcade's framework, protected as a resource server."
+    ],
+    "4": [
+     "Agent loop",
+     "The hand-written loop: model, tools, repeat, and why the token never reaches the model."
+    ],
+    "5": [
+     "Audience vs scope",
+     "Which API a token is for (aud) versus what it may do there (scope), checked per tool."
+    ],
+    "6": [
+     "Refresh and offline grants",
+     "Refresh tokens, offline grants for the worker, rotation, revocation and re-consent."
+    ]
+   },
+   "names": {
+    "pytest": "pytest · test_live.py",
+    "localhost-8080": "Keycloak",
+    "127-0-0-1-8001": "memes-mcp",
+    "api-anthropic-com": "Claude API"
+   },
+   "captions": {
+    "nodes": {
+     "pytest": [
+      "plays the memes-dev client",
+      "and memes-worker"
+     ],
+     "localhost-8080": [
+      "authorization server",
+      "realm memes · :8080"
+     ],
+     "127-0-0-1-8001": [
+      "resource server · /mcp",
+      "arcade-mcp-server 1.32"
+     ],
+     "api-anthropic-com": [
+      "Messages API",
+      "never sees a token"
+     ],
+     "gateway": [
+      "holds the token",
+      "adds Bearer to every call"
+     ],
+     "mw": [
+      "sig · iss · aud · exp",
+      "on every request"
+     ],
+     "tools": [
+      "require_scopes(memes:read)",
+      "first line of each tool"
+     ],
+     "grants": [
+      "Fernet-encrypted",
+      "offline token by sub"
+     ]
+    },
+    "edges": {
+     "127-0-0-1-8001--localhost-8080--keys": [
+      "JWKS · cached 1 h",
+      "not captured"
+     ],
+     "pytest--127-0-0-1-8001": [
+      "JSON-RPC + Bearer"
+     ],
+     "pytest--localhost-8080": [
+      "token · revoke"
+     ]
+    }
+   },
+   "nodes": [
+    {
+     "id": "loop",
+     "name": "run_agent",
+     "kind": "agent-module",
+     "parent": "pytest",
+     "holds_tokens": false,
+     "evidence": [
+      "src/memes_agent/loop.py:30-76"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "gateway",
+     "name": "MCPToolGateway",
+     "kind": "agent-module",
+     "parent": "pytest",
+     "holds_tokens": true,
+     "evidence": [
+      "src/memes_agent/tools.py:29-48"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "llm",
+     "name": "ClaudeLLM",
+     "kind": "agent-module",
+     "parent": "pytest",
+     "holds_tokens": false,
+     "evidence": [
+      "src/memes_agent/llm.py:26-51"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "worker",
+     "name": "run_once (worker)",
+     "kind": "agent-module",
+     "parent": "pytest",
+     "holds_tokens": true,
+     "evidence": [
+      "src/memes_agent/worker.py:29-81"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "grants",
+     "name": "GrantStore",
+     "kind": "datastore",
+     "parent": "pytest",
+     "holds_tokens": true,
+     "evidence": [
+      "src/memes_agent/grants.py:17-68",
+      "tests/test_live.py:108-112"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "kc-token",
+     "name": "/protocol/openid-connect/token",
+     "kind": "endpoint",
+     "parent": "localhost-8080",
+     "holds_tokens": false,
+     "evidence": [
+      "tests/test_live.py:27-28"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "kc-revoke",
+     "name": "/protocol/openid-connect/revoke",
+     "kind": "endpoint",
+     "parent": "localhost-8080",
+     "holds_tokens": false,
+     "evidence": [
+      "tests/test_live.py:148-151"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "kc-certs",
+     "name": "/protocol/openid-connect/certs",
+     "kind": "endpoint",
+     "parent": "localhost-8080",
+     "holds_tokens": false,
+     "evidence": [
+      "servers/memes_mcp/src/memes_mcp/server.py:38"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "mw",
+     "name": "ResourceServerMiddleware",
+     "kind": "component",
+     "parent": "127-0-0-1-8001",
+     "holds_tokens": false,
+     "evidence": [
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:103-123",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/worker.py:278-285"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "sess",
+     "name": "HTTP session manager",
+     "kind": "component",
+     "parent": "127-0-0-1-8001",
+     "holds_tokens": false,
+     "evidence": [
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/transports/http_session_manager.py:166-210"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "tools",
+     "name": "make_meme · caption_meme",
+     "kind": "component",
+     "parent": "127-0-0-1-8001",
+     "holds_tokens": false,
+     "evidence": [
+      "servers/memes_mcp/src/memes_mcp/server.py:55-96",
+      "servers/memes_mcp/src/memes_mcp/scopes.py:19-27"
+     ],
+     "confidence": "declared"
+    }
+   ],
+   "edges": [
+    {
+     "id": "loop-llm",
+     "from": "loop",
+     "to": "llm",
+     "label": "asks",
+     "channel": "in-process",
+     "dashed": false,
+     "evidence": [
+      "src/memes_agent/loop.py:42"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "loop-gateway",
+     "from": "loop",
+     "to": "gateway",
+     "label": "calls",
+     "channel": "in-process",
+     "dashed": false,
+     "evidence": [
+      "src/memes_agent/loop.py:53"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "worker-grants",
+     "from": "worker",
+     "to": "grants",
+     "label": "grant",
+     "channel": "in-process",
+     "dashed": false,
+     "evidence": [
+      "src/memes_agent/worker.py:46",
+      "src/memes_agent/worker.py:59",
+      "src/memes_agent/worker.py:67-68"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "worker-loop",
+     "from": "worker",
+     "to": "loop",
+     "label": "runs",
+     "channel": "in-process",
+     "dashed": false,
+     "evidence": [
+      "src/memes_agent/worker.py:71-73"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "mw-sess",
+     "from": "mw",
+     "to": "sess",
+     "label": "owner",
+     "channel": "in-process",
+     "dashed": false,
+     "evidence": [
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:104-108"
+     ],
+     "confidence": "declared"
+    },
+    {
+     "id": "sess-tools",
+     "from": "sess",
+     "to": "tools",
+     "label": "sub",
+     "channel": "in-process",
+     "dashed": false,
+     "evidence": [
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1182-1183"
+     ],
+     "confidence": "declared"
+    }
+   ],
+   "inspector": {
+    "token": "t1",
+    "eyebrow": "Learning goals 2 and 5",
+    "title": "Token inspector: the access token from test 1",
+    "intro": "`t1`, decoded. Reading a JWT needs no key; trusting one needs the signature check in the One meme tour, step 5. Identity claims are hashed because the capture is `strict`. The right-hand columns say which code checks each claim, from memes-mcp's installed arcade-mcp-server 1.32.",
+    "claims": [
+     {
+      "claim": "header.alg",
+      "checked_by": "memes-mcp validator (`algorithm=\"RS256\"`)",
+      "why": "Must equal the configured algorithm before any key is used, which blocks algorithm-confusion tricks. The refresh token is HS512, so it could never pass here."
+     },
+     {
+      "claim": "header.kid",
+      "checked_by": "memes-mcp validator",
+      "why": "Picks the public key in Keycloak's JWKS. An unknown `kid` is a 401 until the 1-hour JWKS cache refreshes, which is why memes-mcp needs a restart after a realm re-import."
+     },
+     {
+      "claim": "iss",
+      "checked_by": "memes-mcp validator (`ISSUER`)",
+      "why": "Exact string match with `http://localhost:8080/realms/memes`. A token from another realm or IdP fails."
+     },
+     {
+      "claim": "aud",
+      "checked_by": "memes-mcp validator (`expected_audiences`)",
+      "why": "Must contain `CANONICAL_URL`. The `memes-mcp` default client scope's audience mapper puts it there, for every token memes-dev and memes-web get."
+     },
+     {
+      "claim": "exp",
+      "checked_by": "memes-mcp validator (leeway 0)",
+      "why": "900 s after `iat`. Validation is local, so `exp` is the only revocation memes-mcp ever sees."
+     },
+     {
+      "claim": "iat",
+      "checked_by": "memes-mcp validator",
+      "why": "Rejected if it's in the future (clock skew, leeway 0)."
+     },
+     {
+      "claim": "sub",
+      "checked_by": "memes-mcp → `context.user_id`; the app's profile and grant key",
+      "why": "Required (no `sub`, no entry). The stable identity: never the email or username."
+     },
+     {
+      "claim": "scope",
+      "checked_by": "each tool's `require_scopes(context, \"memes:read\")`",
+      "why": "The middleware only parses it; the tools enforce it. Without `memes:read` the session still opens, and every tool refuses (the No permission tour)."
+     },
+     {
+      "claim": "azp",
+      "checked_by": "nobody (recorded as `client_id`)",
+      "why": "Which client asked: `memes-dev` here, `memes-web` in the browser. A separate worker client would make background calls visible in it."
+     },
+     {
+      "claim": "typ",
+      "checked_by": "nobody",
+      "why": "Keycloak's own marker (`Bearer`, `Refresh`, `Offline`, `ID`). memes-mcp relies on `alg` and `aud` instead to keep other token types out."
+     },
+     {
+      "claim": "sid",
+      "checked_by": "nobody at memes-mcp",
+      "why": "Keycloak's session id. It changes per password grant, and stays the same across the offline refresh in the Background tour."
+     },
+     {
+      "claim": "email",
+      "checked_by": "nobody (copied into the resource owner, unused)",
+      "why": "Display only. Emails can change; `sub` can't."
+     }
+    ]
+   },
+   "logs_note": "This page was built on 2026-10-11 from the capture in `.authtrace/run-20261011-005646/`, unchanged. Only the pytest process ran under capture; memes-mcp and Keycloak were already running.",
+   "steps": [
+    {
+     "id": "meme-1",
+     "title": "Get tokens the dev way: the password grant",
+     "time": "+1.806 s",
+     "exchanges": [
+      "x1"
+     ],
+     "tokens": [
+      "t1",
+      "t2",
+      "t3"
+     ],
+     "nodes": [
+      "pytest",
+      "localhost-8080",
+      "kc-token"
+     ],
+     "segs": [
+      [
+       "pytest--localhost-8080",
+       1,
+       "user + password",
+       "dat"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "access · refresh · ID",
+       "tok"
+      ]
+     ],
+     "what": "`dev_token()` posts the **password grant** to Keycloak as the public `memes-dev` client. It asks for `openid memes:read`. Keycloak answers with three tokens and adds `email profile`, the client's default scopes. It also applies the default `memes-mcp` scope, whose audience mapper writes `aud=http://127.0.0.1:8001/mcp`. That scope doesn't show in `scope` because it is configured with `include.in.token.scope: false`.",
+     "wire": "→ POST http://localhost:8080/realms/memes/protocol/openid-connect/token\n  {\"grant_type\": \"password\", \"client_id\": \"memes-dev\", \"username\": \"…\", \"password\": \"…\",\n   \"scope\": \"openid memes:read\"}\n← 200\n  {\"access_token\": \"\u003cjwt fp:4b64c169\u003e\", \"expires_in\": 900, \"refresh_expires_in\": 1800,\n   \"refresh_token\": \"\u003cjwt fp:d33f962b\u003e\", \"token_type\": \"Bearer\", \"id_token\": \"\u003cjwt fp:c6ce940b\u003e\",\n   \"scope\": \"openid memes:read email profile\"}",
+     "checks": [
+      [
+       "Keycloak",
+       "password correct; memes-dev has `directAccessGrantsEnabled`"
+      ],
+      [
+       "Keycloak",
+       "`memes:read` is an optional scope on memes-dev → granted on request"
+      ]
+     ],
+     "roles": "Resource owner: the realm's dev test user · Client: `memes-dev`, played by pytest · Authorization server: Keycloak realm `memes`",
+     "note": "Finding **OAUTH-ROPC** (x1, x15, x24, x37) is by design: `memes-dev` exists so tests and scripts can get a token without a browser, and the decision log marks it dev only. `memes-web`, the real client, has the password grant switched off and uses the authorization code flow with PKCE.",
+     "goals": [
+      1,
+      2,
+      5
+     ],
+     "code": [
+      "tests/test_live.py:25-38",
+      "infra/keycloak/memes-realm.json:230-246",
+      "infra/keycloak/memes-realm.json:165-186",
+      "infra/keycloak/memes-realm.json:207",
+      "docs/decisions.md:11"
+     ],
+     "quiz": [
+      "Nobody asked for the `memes-mcp` scope. Why does `aud` name the MCP server?",
+      "`memes-mcp` is a *default* client scope on memes-dev, so Keycloak always applies it, and its audience mapper adds the MCP server's canonical URL to `aud`. `include.in.token.scope: false` hides it from `scope`."
+     ]
+    },
+    {
+     "id": "meme-2",
+     "title": "Three tokens, three audiences; only one leaves",
+     "time": "+1.806 s",
+     "tokens": [
+      "t1",
+      "t2",
+      "t3"
+     ],
+     "nodes": [
+      "pytest",
+      "gateway"
+     ],
+     "what": "The access token `t1` is for memes-mcp. The refresh token `t2` is for Keycloak itself, and the ID token `t3` is for the client. The test keeps only `t1` and hands it to `MCPToolGateway`. The capture confirms that no refresh token ever reached memes-mcp (rule **REFRESH-TO-RS** passed).",
+     "wire": "t1  access   RS256  typ Bearer   aud http://127.0.0.1:8001/mcp           900 s\nt2  refresh  HS512  typ Refresh  aud http://localhost:8080/realms/memes  1800 s\nt3  id       RS256  typ ID       aud memes-dev                           900 s",
+     "checks": [
+      [
+       "Nobody yet",
+       "reading a JWT isn't trusting it; that happens in step 5"
+      ]
+     ],
+     "inv": "A user's identity is the Keycloak `sub`, never an email or a username.",
+     "goals": [
+      2
+     ],
+     "code": [
+      "tests/test_live.py:38",
+      "tests/test_live.py:46",
+      "CLAUDE.md:15-16"
+     ],
+     "quiz": [
+      "Could someone replay the refresh token `t2` at memes-mcp?",
+      "No. It's HS512 (a secret only Keycloak holds), memes-mcp accepts only RS256 keys from the JWKS, and its `aud` is the realm, not the MCP URL. The ID token `t3` fails the `aud` check too."
+     ]
+    },
+    {
+     "id": "meme-3",
+     "title": "Open an MCP session: the 2026 probe gets a 400",
+     "time": "+1.863 s",
+     "exchanges": [
+      "x2"
+     ],
+     "tokens": [
+      "t1"
+     ],
+     "nodes": [
+      "pytest",
+      "gateway",
+      "127-0-0-1-8001",
+      "mw",
+      "sess"
+     ],
+     "segs": [
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "server/discover + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "400",
+       "err"
+      ]
+     ],
+     "what": "`MCPToolGateway` builds one HTTP client with `Authorization: Bearer …` as a default header, so *every* MCP request carries `t1`. The `mcp` 2.2 client defaults to `mode=\"auto\"`: it first probes `server/discover` at protocol `2026-07-28`. On memes-mcp, `ResourceServerMiddleware` wraps the whole `/mcp` mount and validates the token first. Only then does the session manager compare the `MCP-Protocol-Version` header with its supported list (`2025-06-18`, `2025-11-25`) and answer 400.",
+     "wire": "→ POST http://127.0.0.1:8001/mcp\n  Authorization: Bearer \u003cjwt fp:4b64c169\u003e\n  {\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"server/discover\", ...}\n← 400\n  {\"jsonrpc\": \"2.0\", \"error\": {\"code\": -32600,\n   \"message\": \"Bad Request: Unsupported protocol version: 2026-07-28\"}}",
+     "checks": [
+      [
+       "ResourceServerMiddleware",
+       "token valid → pass through"
+      ],
+      [
+       "Session manager",
+       "protocol 2026-07-28 not supported → 400"
+      ]
+     ],
+     "note": "Finding **MCP-VERSION-FALLBACK** (x2, x16, x26) is expected: the decision log says a single 400 per connection is the price of the forward-compatible client. It's version negotiation, not an auth failure. A rejected token gets a **401** with `WWW-Authenticate` instead.",
+     "roles": "Client: pytest via `MCPToolGateway` · Resource server: memes-mcp",
+     "goals": [
+      3
+     ],
+     "code": [
+      "src/memes_agent/tools.py:38-45",
+      ".venv/lib/python3.13/site-packages/mcp/client/client.py:330-333",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/worker.py:278-285",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:103-119",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/transports/http_session_manager.py:204-210",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/types.py:67",
+      "docs/decisions.md:19"
+     ],
+     "quiz": [
+      "How do we know `t1` was valid, even though this request failed?",
+      "The middleware wraps the whole `/mcp` app. A bad token would have stopped there with a 401 and never reached the protocol-version check that produced this 400."
+     ]
+    },
+    {
+     "id": "meme-4",
+     "title": "Fall back to 2025-11-25: initialize, stream, tools/list",
+     "time": "+1.866 s",
+     "exchanges": [
+      "x3",
+      "x4",
+      "x5",
+      "x6"
+     ],
+     "tokens": [
+      "t1"
+     ],
+     "nodes": [
+      "pytest",
+      "gateway",
+      "127-0-0-1-8001",
+      "mw",
+      "sess"
+     ],
+     "segs": [
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "initialize + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "2025-11-25",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "tools/list + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "2 tools",
+       "dat"
+      ]
+     ],
+     "what": "Any error on the probe makes the client fall back to the classic `initialize` handshake, which is exempt from the version-header check. The server agrees on `2025-11-25` and names itself `Memes 0.1.0`. `notifications/initialized` (202) and a `GET` event stream complete the session, and `tools/list` returns both tools in alphabetical order, which is why the loop picks tools by name. The middleware re-validates `t1` on each of these requests.",
+     "wire": "→ POST /mcp  {\"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-11-25\", ...}}\n← 200        {\"result\": {\"protocolVersion\": \"2025-11-25\", \"serverInfo\": {\"name\": \"Memes\", \"version\": \"0.1.0\"}}}\n→ POST /mcp  {\"method\": \"notifications/initialized\"}            ← 202\n→ GET  /mcp                                                         ← 200\n→ POST /mcp  {\"method\": \"tools/list\"}\n← 200        {\"tools\": [{\"name\": \"Memes_CaptionMeme\"}, {\"name\": \"Memes_MakeMeme\"}]}",
+     "checks": [
+      [
+       "ResourceServerMiddleware",
+       "sig · iss · aud · exp, on every request"
+      ],
+      [
+       "Session manager",
+       "initialize negotiates the version; later requests must match it"
+      ]
+     ],
+     "goals": [
+      3
+     ],
+     "code": [
+      ".venv/lib/python3.13/site-packages/mcp/client/_probe.py:1-13",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/transports/http_session_manager.py:186-188",
+      "servers/memes_mcp/src/memes_mcp/server.py:47",
+      "src/memes_agent/loop.py:9-11",
+      "src/memes_agent/tools.py:50-58"
+     ],
+     "quiz": [
+      "`tools/list` showed both tools. Does that mean this token may call them?",
+      "No. Listing needs only a valid token. Each tool checks `memes:read` itself, as the No permission tour shows with a token that lists both tools and then gets refused by each."
+     ]
+    },
+    {
+     "id": "meme-5",
+     "title": "Validate the token: JWKS signature, iss, aud, exp",
+     "time": "every request; JWKS cached 1 h",
+     "tokens": [
+      "t1"
+     ],
+     "nodes": [
+      "127-0-0-1-8001",
+      "mw",
+      "localhost-8080",
+      "kc-certs"
+     ],
+     "segs": [
+      [
+       "127-0-0-1-8001--localhost-8080--keys",
+       1,
+       "GET /certs (if cache is stale)",
+       "dat"
+      ],
+      [
+       "127-0-0-1-8001--localhost-8080--keys",
+       -1,
+       "JWKS",
+       "dat"
+      ]
+     ],
+     "what": "memes-mcp configures one trusted issuer: the Keycloak realm, its `/certs` URL, `RS256`, and `expected_audiences=[CANONICAL_URL]`. For every request, the validator takes the cached JWKS (refetched after 3600 s), finds the key whose `kid` matches and whose `alg` is RS256, and verifies the signature. Then it checks `exp`, `iat` and `nbf` with zero leeway, `iss` by exact string, `aud` against the canonical URL, and that `sub` exists. It parses `scope` into `granted_scopes` but enforces nothing there. The result, a *resource owner*, rides along to the tools.",
+     "wire": "t1 header  alg RS256  kid K4RimLbP…\niss == http://localhost:8080/realms/memes   ✓\naud ∋  http://127.0.0.1:8001/mcp            ✓\nexp    iat + 900 s, still in the future     ✓\nsub    present → context.user_id",
+     "checks": [
+      [
+       "Signature",
+       "kid → JWKS key, RS256 only"
+      ],
+      [
+       "iss",
+       "== ISSUER"
+      ],
+      [
+       "aud",
+       "∋ CANONICAL_URL"
+      ],
+      [
+       "exp · iat · nbf",
+       "leeway 0"
+      ],
+      [
+       "sub",
+       "must exist"
+      ],
+      [
+       "scope",
+       "parsed, not enforced here"
+      ]
+     ],
+     "inv": "The MCP server trusts only JWTs it has validated (signature, `iss`, `aud`, `exp`).",
+     "note": "The JWKS fetch itself isn't in this capture: memes-mcp was started before the run and wasn't wrapped, so the dashed edge stays *inferred*. Running `uv run memes-mcp` under `authtrace run` would show it (once per hour at most).",
+     "roles": "Resource server: memes-mcp, validating locally · Authorization server: Keycloak, only as the JWKS publisher",
+     "goals": [
+      2,
+      3
+     ],
+     "code": [
+      "servers/memes_mcp/src/memes_mcp/server.py:32-45",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/auth.py:40",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/auth.py:205-216",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:165-188",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:222-249",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:272-279",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:283-327",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:329-344",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:431-446",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/base.py:307-310",
+      "CLAUDE.md:19-20"
+     ],
+     "quiz": [
+      "An admin ends this user's Keycloak session right now. Does `t1` stop working at memes-mcp?",
+      "No. Validation is local (cached keys, no call to Keycloak), so `t1` keeps working until `exp`, 15 minutes after it was issued. Short access-token lifetimes are what keep that window small."
+     ]
+    },
+    {
+     "id": "meme-6",
+     "title": "Claude picks a tool: only words and schemas cross",
+     "time": "+1.878 s",
+     "exchanges": [
+      "x7"
+     ],
+     "nodes": [
+      "pytest",
+      "loop",
+      "llm",
+      "api-anthropic-com"
+     ],
+     "segs": [
+      [
+       "loop-llm",
+       1,
+       "messages + schemas",
+       "dat"
+      ],
+      [
+       "pytest--api-anthropic-com",
+       1,
+       "words + tool schemas",
+       "dat"
+      ],
+      [
+       "pytest--api-anthropic-com",
+       -1,
+       "tool_use Memes_MakeMeme",
+       "dat"
+      ]
+     ],
+     "what": "`run_agent` puts the user's words in the first message as data, fetches the tool schemas, and calls `ClaudeLLM`, which sends only `model`, `system`, `tools` and `messages`. Claude answers with a `tool_use` block for `Memes_MakeMeme`. The capture scanned every model request for known token values; rule **TOKEN-LEAK-LLM** passed for all seven.",
+     "wire": "→ POST https://api.anthropic.com/v1/messages\n  {\"model\": \"claude-sonnet-5-5\", \"system\": \"…\", \"messages\": \"…\",\n   \"tools\": [{\"name\": \"Memes_CaptionMeme\", ...}, {\"name\": \"Memes_MakeMeme\", ...}]}\n← 200\n  {\"content\": [{\"type\": \"tool_use\", \"name\": \"Memes_MakeMeme\", \"input\": \"…\"}], \"stop_reason\": \"tool_use\"}",
+     "checks": [
+      [
+       "authtrace rule TOKEN-LEAK-LLM",
+       "no known token in the request → passed"
+      ],
+      [
+       "Anthropic API",
+       "its own API key, not an OAuth token"
+      ]
+     ],
+     "inv": "Tokens never reach the LLM. `MCPToolGateway` attaches them; the model sees names and arguments only.",
+     "roles": "Claude is not an OAuth party: it never holds the user's token and can't choose whose token is used.",
+     "goals": [
+      4
+     ],
+     "code": [
+      "src/memes_agent/loop.py:33-42",
+      "src/memes_agent/llm.py:30-51",
+      "CLAUDE.md:17-18"
+     ],
+     "quiz": [
+      "Claude asked for `Memes_MakeMeme`. Could it make that call run as a different user?",
+      "No. The token was fixed when the gateway was built, and the model only supplies a tool name and arguments. Identity comes from the token's `sub`, never from arguments."
+     ]
+    },
+    {
+     "id": "meme-7",
+     "title": "Call Memes_MakeMeme as the user",
+     "time": "+2.853 s",
+     "exchanges": [
+      "x8"
+     ],
+     "tokens": [
+      "t1"
+     ],
+     "nodes": [
+      "pytest",
+      "loop",
+      "gateway",
+      "127-0-0-1-8001",
+      "mw",
+      "sess",
+      "tools"
+     ],
+     "segs": [
+      [
+       "loop-gateway",
+       1,
+       "call(Memes_MakeMeme)",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "tools/call + Bearer",
+       "tok"
+      ],
+      [
+       "mw-sess",
+       1,
+       "resource owner",
+       "dat"
+      ],
+      [
+       "sess-tools",
+       1,
+       "user_id = sub",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "meme",
+       "dat"
+      ]
+     ],
+     "what": "The loop calls `tools.call`, and the gateway sends `tools/call` with the Bearer header. After the middleware validates `t1` again, arcade sets `context.user_id` from the token's `sub`. The first line of `make_meme` is `require_scopes(context, \"memes:read\")`, which reads the validated scopes (through a private attribute, kept in `scopes.py`). `t1` has `memes:read`, so the tool picks a meme and returns it as `structuredContent`, which the loop keeps for the UI.",
+     "wire": "→ POST http://127.0.0.1:8001/mcp\n  Authorization: Bearer \u003cjwt fp:4b64c169\u003e\n  {\"method\": \"tools/call\", \"params\": {\"name\": \"Memes_MakeMeme\", \"arguments\": \"…\"}}\n← 200\n  {\"result\": {\"content\": [...], \"structuredContent\": \"…\", \"isError\": false}}",
+     "checks": [
+      [
+       "ResourceServerMiddleware",
+       "sig · iss · aud · exp"
+      ],
+      [
+       "arcade server",
+       "context.user_id = sub"
+      ],
+      [
+       "make_meme → require_scopes",
+       "memes:read ∈ scope ✓"
+      ]
+     ],
+     "inv": "Every tool checks its own scopes with `require_scopes` (fail closed).",
+     "roles": "Resource owner: the user behind `sub` · Client: pytest via the gateway · Resource server: memes-mcp",
+     "goals": [
+      1,
+      3,
+      5
+     ],
+     "code": [
+      "src/memes_agent/loop.py:53-58",
+      "src/memes_agent/tools.py:60-67",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1182-1183",
+      "servers/memes_mcp/src/memes_mcp/server.py:55-68",
+      "servers/memes_mcp/src/memes_mcp/scopes.py:12-27"
+     ],
+     "quiz": [
+      "Where does memes-mcp get the user's identity: the tool arguments or the token?",
+      "The token. `sub` becomes `context.user_id`. The arguments carry only hints, which are data, never identity."
+     ]
+    },
+    {
+     "id": "meme-8",
+     "title": "A caption is rejected, and Claude rewrites it",
+     "time": "+2.886 s",
+     "exchanges": [
+      "x9",
+      "x10",
+      "x11",
+      "x12"
+     ],
+     "tokens": [
+      "t1"
+     ],
+     "nodes": [
+      "pytest",
+      "loop",
+      "gateway",
+      "llm",
+      "api-anthropic-com",
+      "127-0-0-1-8001",
+      "mw",
+      "tools"
+     ],
+     "segs": [
+      [
+       "pytest--api-anthropic-com",
+       -1,
+       "tool_use Memes_CaptionMeme",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "tools/call + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "isError: true",
+       "err"
+      ],
+      [
+       "pytest--api-anthropic-com",
+       1,
+       "tool_result is_error",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "tools/call + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "approved",
+       "dat"
+      ]
+     ],
+     "what": "Claude submits a caption (x9 → x10), and memes-mcp answers HTTP 200 with `isError: true` and arcade's `_meta` error block. The scope check passed (`t1` has `memes:read`), so this is `caption_meme` raising a `RetryableToolError`: either an unknown `meme_id` or a caption the PG guard rejected. The strict capture dropped the message, so which one is *unknown*. The gateway turns it into an `is_error` result, the loop hands it back to Claude, and the rewrite (x11 → x12) is approved. There's no retry code anywhere.",
+     "wire": "→ tools/call Memes_CaptionMeme    ← 200 {\"result\": {\"_meta\": \"…\", \"content\": [...], \"isError\": true}}\n→ tools/call Memes_CaptionMeme    ← 200 {\"result\": {\"content\": [...], \"structuredContent\": \"…\", \"isError\": false}}",
+     "checks": [
+      [
+       "caption_meme → require_scopes",
+       "memes:read ✓"
+      ],
+      [
+       "caption_meme guard",
+       "rejected, then approved"
+      ],
+      [
+       "Agent loop",
+       "is_error goes back to Claude as data"
+      ]
+     ],
+     "inv": "Errors are data: tool failures go back to the model as `is_error` results.",
+     "note": "Run the test with `--redaction dev` to keep the rejection text and see which check fired.",
+     "goals": [
+      3,
+      4
+     ],
+     "code": [
+      "servers/memes_mcp/src/memes_mcp/server.py:79-96",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1593-1650",
+      "src/memes_agent/tools.py:66-67",
+      "src/memes_agent/loop.py:61-69"
+     ],
+     "quiz": [
+      "Is x10 an authorization failure?",
+      "No. Auth failures look different: a 401 from the middleware, or an `insufficient_scope` error from `require_scopes`, and `t1` passes both. This is the caption gate, reported as data for the model."
+     ]
+    },
+    {
+     "id": "meme-9",
+     "title": "Claude finishes, and the MCP session closes",
+     "time": "+5.776 s",
+     "exchanges": [
+      "x13",
+      "x14"
+     ],
+     "tokens": [
+      "t1"
+     ],
+     "nodes": [
+      "pytest",
+      "loop",
+      "gateway",
+      "api-anthropic-com",
+      "127-0-0-1-8001",
+      "mw",
+      "sess"
+     ],
+     "segs": [
+      [
+       "pytest--api-anthropic-com",
+       -1,
+       "end_turn",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "DELETE + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "200",
+       "dat"
+      ]
+     ],
+     "what": "Claude replies with text and `end_turn`, so the loop stops. Leaving `async with MCPToolGateway` closes the client, which sends `DELETE /mcp` to end the session. That request is validated too. Nothing tells Keycloak: `t1` isn't revoked, it just stops being used.",
+     "wire": "→ POST https://api.anthropic.com/v1/messages   ← 200 {\"stop_reason\": \"end_turn\"}\n→ DELETE http://127.0.0.1:8001/mcp\n  Authorization: Bearer \u003cjwt fp:4b64c169\u003e\n← 200",
+     "checks": [
+      [
+       "ResourceServerMiddleware",
+       "even DELETE needs a valid token"
+      ]
+     ],
+     "goals": [
+      3,
+      4
+     ],
+     "code": [
+      "src/memes_agent/loop.py:45-46",
+      "src/memes_agent/tools.py:47-48",
+      "tests/test_live.py:46-50"
+     ],
+     "quiz": [
+      "After the DELETE, could `t1` still open a new session?",
+      "Yes, until its `exp` (900 s after issue). DELETE ends the MCP session, not the token, and memes-mcp validates locally, so only `exp` limits it."
+     ]
+    },
+    {
+     "id": "noperm-1",
+     "title": "Ask for only openid: right audience, no permission",
+     "time": "+6.819 s",
+     "exchanges": [
+      "x15"
+     ],
+     "tokens": [
+      "t4"
+     ],
+     "nodes": [
+      "pytest",
+      "localhost-8080",
+      "kc-token"
+     ],
+     "segs": [
+      [
+       "pytest--localhost-8080",
+       1,
+       "password grant, scope openid",
+       "dat"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "t4: no memes:read",
+       "tok"
+      ]
+     ],
+     "what": "The scope test asks for `scope=openid` only. `memes:read` is *optional* on memes-dev, so it's left out; `memes-mcp` is *default*, so `aud` still names the MCP server. Since the 2026-10-04 split, \"which API\" (audience) and \"what may it do\" (permission) are separate scopes.",
+     "wire": "→ POST …/openid-connect/token  {\"grant_type\": \"password\", \"client_id\": \"memes-dev\", \"scope\": \"openid\"}\n← 200  {\"access_token\": \"\u003cjwt fp:f0b48225\u003e\", \"scope\": \"openid email profile\"}\n\nt4  aud http://127.0.0.1:8001/mcp   scope openid email profile",
+     "checks": [
+      [
+       "Keycloak",
+       "default scopes applied; optional memes:read not requested"
+      ]
+     ],
+     "goals": [
+      2,
+      5
+     ],
+     "code": [
+      "tests/test_live.py:53-59",
+      "infra/keycloak/memes-realm.json:237-246",
+      "docs/decisions.md:20"
+     ],
+     "quiz": [
+      "Before the split, removing `memes:read` gave a 401. Why?",
+      "The audience mapper lived on `memes:read`, so a token without it also lost `aud`, and the middleware rejected it. Now the audience comes from the default `memes-mcp` scope and the permission is separate."
+     ]
+    },
+    {
+     "id": "noperm-2",
+     "title": "The door opens: session and tools/list succeed",
+     "time": "+6.862 s",
+     "exchanges": [
+      "x16",
+      "x17",
+      "x18",
+      "x19",
+      "x20"
+     ],
+     "tokens": [
+      "t4"
+     ],
+     "nodes": [
+      "pytest",
+      "gateway",
+      "127-0-0-1-8001",
+      "mw",
+      "sess"
+     ],
+     "segs": [
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "discover + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "400",
+       "err"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "initialize · tools/list + Bearer",
+       "tok"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "2 tools",
+       "dat"
+      ]
+     ],
+     "what": "The same probe 400, then the same handshake. `t4` passes the middleware because its signature, `iss`, `aud` and `exp` are fine; scope isn't part of that check. Arcade's built-in scope enforcement runs only for tools declared with `requires_auth`, and these tools aren't. `tools/list` returns both tools, as the test asserts.",
+     "wire": "→ POST /mcp server/discover   ← 400 Unsupported protocol version: 2026-07-28\n→ POST /mcp initialize        ← 200 2025-11-25\n→ POST /mcp tools/list        ← 200 [Memes_CaptionMeme, Memes_MakeMeme]",
+     "checks": [
+      [
+       "ResourceServerMiddleware",
+       "sig · iss · aud · exp ✓ (scope not checked)"
+      ]
+     ],
+     "goals": [
+      3,
+      5
+     ],
+     "code": [
+      "tests/test_live.py:60",
+      "tests/test_live.py:63",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1326-1331",
+      "docs/decisions.md:21"
+     ],
+     "quiz": [
+      "Why doesn't the server refuse `t4` at the door?",
+      "The door checks *who the token is for* (aud) and that it's genuine. *What it may do* is decided per tool, so one server can host tools with different scopes."
+     ]
+    },
+    {
+     "id": "noperm-3",
+     "title": "Every tool refuses: insufficient_scope, as data",
+     "time": "+6.875 s",
+     "exchanges": [
+      "x21",
+      "x22",
+      "x23"
+     ],
+     "tokens": [
+      "t4"
+     ],
+     "nodes": [
+      "pytest",
+      "gateway",
+      "127-0-0-1-8001",
+      "mw",
+      "sess",
+      "tools"
+     ],
+     "segs": [
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "tools/call + Bearer",
+       "tok"
+      ],
+      [
+       "sess-tools",
+       1,
+       "require_scopes",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "isError: insufficient_scope",
+       "err"
+      ]
+     ],
+     "what": "Both calls reach their tools, and the first line of each, `require_scopes(context, \"memes:read\")`, raises `ToolExecutionError(\"insufficient_scope: …\")`. Arcade returns that as HTTP 200 with `isError: true`, and the test asserts `insufficient_scope` in both. The spec-ideal answer is HTTP 403 with `WWW-Authenticate: insufficient_scope`, which arcade's middleware can send for `requires_auth` tools; the project chose errors as data for now. The session then ends (x23).",
+     "wire": "→ tools/call Memes_MakeMeme     ← 200 {\"result\": {\"_meta\": \"…\", \"content\": [...], \"isError\": true}}\n→ tools/call Memes_CaptionMeme  ← 200 {\"result\": {\"_meta\": \"…\", \"content\": [...], \"isError\": true}}\n→ DELETE /mcp                   ← 200",
+     "checks": [
+      [
+       "make_meme → require_scopes",
+       "memes:read missing → insufficient_scope"
+      ],
+      [
+       "caption_meme → require_scopes",
+       "memes:read missing → insufficient_scope"
+      ]
+     ],
+     "inv": "Every tool checks its own scopes with `require_scopes` (fail closed): no token, no scopes, no tool.",
+     "note": "The test lists every tool by name and fails on a new one that isn't listed, so a tool can't ship without a scope check.",
+     "goals": [
+      3,
+      5
+     ],
+     "code": [
+      "servers/memes_mcp/src/memes_mcp/scopes.py:19-27",
+      "servers/memes_mcp/src/memes_mcp/server.py:64",
+      "servers/memes_mcp/src/memes_mcp/server.py:79",
+      ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:121-123",
+      "tests/test_live.py:61-66",
+      "docs/decisions.md:21"
+     ],
+     "quiz": [
+      "How could a client learn which scope to ask for?",
+      "Two ways: the error names `memes:read`, and memes-mcp's protected resource metadata (RFC 9728) advertises `scopes_supported=[\"memes:read\"]`."
+     ]
+    },
+    {
+     "id": "bg-1",
+     "title": "Consent once: an offline grant",
+     "time": "+6.901 s",
+     "exchanges": [
+      "x24"
+     ],
+     "tokens": [
+      "t7",
+      "t8",
+      "t9"
+     ],
+     "nodes": [
+      "pytest",
+      "localhost-8080",
+      "kc-token",
+      "worker",
+      "grants"
+     ],
+     "segs": [
+      [
+       "pytest--localhost-8080",
+       1,
+       "scope … offline_access",
+       "dat"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "offline refresh token",
+       "tok"
+      ],
+      [
+       "worker-grants",
+       1,
+       "put(sub, encrypted)",
+       "tok"
+      ]
+     ],
+     "what": "The worker test asks for `openid memes:read offline_access`. The refresh token `t8` now has `typ: Offline` and lives 604800 s (7 days idle, the realm's offline policy) instead of 1800 s. The test stores it in `GrantStore`, Fernet-encrypted, keyed by `sub`. In the app, this is the step-up consent at `/background/enable` through the browser, not a password grant.",
+     "wire": "→ POST …/openid-connect/token  {\"grant_type\": \"password\", \"client_id\": \"memes-dev\",\n                                \"scope\": \"openid memes:read offline_access\"}\n← 200  {\"refresh_expires_in\": 604800, \"refresh_token\": \"\u003cjwt fp:3bc2ee9e\u003e\", ...}\n\nt8  refresh  HS512  typ Offline  604800 s",
+     "checks": [
+      [
+       "Keycloak",
+       "offline_access is optional on memes-dev, and the user has the role"
+      ],
+      [
+       "The test",
+       "asserts typ == Offline"
+      ]
+     ],
+     "note": "The access token `t7` from this grant is never used: the worker always refreshes first.",
+     "roles": "Resource owner: the user, consenting once · Client: memes-dev (the test) · Authorization server: Keycloak",
+     "goals": [
+      1,
+      6
+     ],
+     "code": [
+      "tests/test_live.py:120-128",
+      "infra/keycloak/memes-realm.json:9-11",
+      "infra/keycloak/memes-realm.json:243-246",
+      "src/memes_agent/grants.py:34-36",
+      "src/memes_agent/web.py:207-213"
+     ],
+     "quiz": [
+      "Why is the offline token the most sensitive thing the app stores?",
+      "It survives logout and the SSO session for up to 30 days, and it mints fresh access tokens. So it's encrypted at rest and only the worker redeems it."
+     ]
+    },
+    {
+     "id": "bg-2",
+     "title": "The worker swaps the grant for a fresh access token",
+     "time": "+6.941 s",
+     "exchanges": [
+      "x25"
+     ],
+     "tokens": [
+      "t8",
+      "t10",
+      "t11"
+     ],
+     "nodes": [
+      "pytest",
+      "worker",
+      "grants",
+      "localhost-8080",
+      "kc-token"
+     ],
+     "segs": [
+      [
+       "worker-grants",
+       1,
+       "get(sub)",
+       "dat"
+      ],
+      [
+       "pytest--localhost-8080",
+       1,
+       "refresh_token grant",
+       "tok"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "new access + refresh",
+       "tok"
+      ],
+      [
+       "worker-grants",
+       1,
+       "put rotated",
+       "tok"
+      ]
+     ],
+     "what": "`run_once` decrypts the grant and refreshes it *before* doing anything else. Keycloak returns a new access token `t10` and a new offline refresh token `t11` (new `jti`, same `sid`), and the worker saves `t11` before running the agent, so a crash can't lose the grant. The test's refresher uses the public `memes-dev` client, with no secret. The real worker uses `memes-web` and its client secret.",
+     "wire": "→ POST …/openid-connect/token\n  {\"grant_type\": \"refresh_token\", \"client_id\": \"memes-dev\", \"refresh_token\": \"\u003cjwt fp:3bc2ee9e\u003e\"}\n← 200\n  {\"access_token\": \"\u003cjwt fp:4fa825d1\u003e\", \"refresh_expires_in\": 604800, \"refresh_token\": \"\u003cjwt fp:8212119c\u003e\"}",
+     "checks": [
+      [
+       "Keycloak",
+       "offline session alive; refresh token issued to this client"
+      ],
+      [
+       "The test",
+       "asserts the stored grant changed (rotated and saved)"
+      ]
+     ],
+     "note": "This capture shows a *new* refresh token. It doesn't show the old one dying. The realm file doesn't set `revokeRefreshToken`, which Keycloak leaves off by default, so `t8` may still be redeemable. Nothing re-used it here. An opt-in probe that redeems `t8` a second time would settle it.",
+     "goals": [
+      6
+     ],
+     "code": [
+      "src/memes_agent/worker.py:46-68",
+      "tests/test_live.py:87-105",
+      "tests/test_live.py:139",
+      "src/memes_agent/worker.py:96-99",
+      "src/memes_agent/auth.py:39-46",
+      "docs/decisions.md:34"
+     ],
+     "quiz": [
+      "Lesson 6a says the grant can only be redeemed with memes-web's client secret. Does that hold in this test?",
+      "No. This grant was issued to the public `memes-dev` client, which has no secret, so the encrypted `GrantStore` is the only protection. A refresh token is bound to the client it was issued to, which is why the test can't use the real worker's refresher."
+     ]
+    },
+    {
+     "id": "bg-3",
+     "title": "Same agent, same checks: memes-mcp can't tell it's background",
+     "time": "+6.952 s",
+     "exchanges": [
+      "x26",
+      "x27",
+      "x28",
+      "x29",
+      "x30",
+      "x31",
+      "x32",
+      "x33",
+      "x34",
+      "x35",
+      "x36"
+     ],
+     "tokens": [
+      "t10"
+     ],
+     "nodes": [
+      "pytest",
+      "worker",
+      "loop",
+      "gateway",
+      "llm",
+      "api-anthropic-com",
+      "127-0-0-1-8001",
+      "mw",
+      "sess",
+      "tools"
+     ],
+     "segs": [
+      [
+       "worker-loop",
+       1,
+       "run_agent(words)",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       1,
+       "MCP + Bearer t10",
+       "tok"
+      ],
+      [
+       "pytest--api-anthropic-com",
+       1,
+       "words + schemas",
+       "dat"
+      ],
+      [
+       "pytest--127-0-0-1-8001",
+       -1,
+       "meme + approved caption",
+       "dat"
+      ]
+     ],
+     "what": "The worker hands `t10` to a fresh `MCPToolGateway` and runs the same `run_agent`. On the wire it's test 1 again: the probe 400, the handshake, `Memes_MakeMeme`, and `Memes_CaptionMeme`, approved on the first try this time. memes-mcp validates `t10` exactly like `t1`. Same `iss`, same `aud`, same `azp`. Only `scope` adds `offline_access`. The meme goes to the inbox.",
+     "wire": "→ POST /mcp server/discover          ← 400\n→ initialize · initialized · GET · tools/list   ← 200 · 202 · 200 · 200\n→ tools/call Memes_MakeMeme          ← 200 isError false\n→ tools/call Memes_CaptionMeme       ← 200 isError false\n→ DELETE /mcp                        ← 200\n\nt10  aud http://127.0.0.1:8001/mcp  azp memes-dev  scope openid memes:read email profile offline_access",
+     "checks": [
+      [
+       "ResourceServerMiddleware",
+       "sig · iss · aud · exp, same as for t1"
+      ],
+      [
+       "make_meme, caption_meme",
+       "memes:read ✓"
+      ]
+     ],
+     "goals": [
+      3,
+      4,
+      6
+     ],
+     "code": [
+      "src/memes_agent/worker.py:70-80",
+      "src/memes_agent/worker.py:51-52",
+      "src/memes_agent/worker.py:98"
+     ],
+     "quiz": [
+      "How could memes-mcp's logs tell a background call from a click?",
+      "Today they can't: same client, same claims. The `# EXTEND:` in `worker.py` proposes a separate `memes-worker` client, so `azp` would differ. Another one down-scopes the refresh to `memes:read` only."
+     ]
+    },
+    {
+     "id": "bg-4",
+     "title": "Stop: revoke the grant at Keycloak",
+     "time": "+11.262 s",
+     "exchanges": [
+      "x37",
+      "x38"
+     ],
+     "tokens": [
+      "t13",
+      "t14"
+     ],
+     "nodes": [
+      "pytest",
+      "localhost-8080",
+      "kc-token",
+      "kc-revoke",
+      "grants"
+     ],
+     "segs": [
+      [
+       "pytest--localhost-8080",
+       1,
+       "password grant + offline_access",
+       "dat"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "offline token",
+       "tok"
+      ],
+      [
+       "pytest--localhost-8080",
+       1,
+       "revoke (RFC 7009)",
+       "tok"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "200",
+       "dat"
+      ]
+     ],
+     "what": "The last test gets a new offline grant, stores it, and revokes it at Keycloak's revocation endpoint (RFC 7009), as \"Stop\" does. The test is a public client, so it sends only `client_id`. The app's `/background/disable` authenticates with memes-web's secret, revokes, and then deletes the row. Deleting only our copy would leave a live grant at Keycloak.",
+     "wire": "→ POST …/openid-connect/revoke\n  {\"token\": \"\u003cjwt fp:828cc164\u003e\", \"client_id\": \"memes-dev\"}\n← 200",
+     "checks": [
+      [
+       "Keycloak",
+       "the token belongs to memes-dev → offline session ended"
+      ]
+     ],
+     "goals": [
+      6
+     ],
+     "code": [
+      "tests/test_live.py:142-151",
+      "src/memes_agent/web.py:216-226",
+      "src/memes_agent/auth.py:49-63",
+      "docs/decisions.md:35"
+     ],
+     "quiz": [
+      "Why revoke at Keycloak before deleting the row?",
+      "The grant lives at Keycloak as an offline session. Deleting our encrypted copy alone leaves it valid until its 7-day idle or 30-day max lifetime runs out."
+     ]
+    },
+    {
+     "id": "bg-5",
+     "title": "The worker finds a dead grant: invalid_grant → needs_reauth",
+     "time": "+11.324 s",
+     "exchanges": [
+      "x39"
+     ],
+     "tokens": [
+      "t14"
+     ],
+     "nodes": [
+      "pytest",
+      "worker",
+      "grants",
+      "localhost-8080",
+      "kc-token"
+     ],
+     "segs": [
+      [
+       "pytest--localhost-8080",
+       1,
+       "refresh_token grant",
+       "tok"
+      ],
+      [
+       "pytest--localhost-8080",
+       -1,
+       "400 invalid_grant",
+       "err"
+      ],
+      [
+       "worker-grants",
+       1,
+       "mark_needs_reauth",
+       "dat"
+      ]
+     ],
+     "what": "`run_once` tries to refresh the revoked token. Keycloak answers 400 `invalid_grant`, because the offline session behind it is gone. The worker treats that as \"only the user can fix this\": it marks the grant `needs_reauth`, drops the token, and moves on. The app shows a Reconnect banner. No MCP or Claude call happens; the test passes no gateway or model at all.",
+     "wire": "→ POST …/openid-connect/token\n  {\"grant_type\": \"refresh_token\", \"client_id\": \"memes-dev\", \"refresh_token\": \"\u003cjwt fp:828cc164\u003e\"}\n← 400\n  {\"error\": \"invalid_grant\", \"error_description\": \"Offline user session not found\"}",
+     "checks": [
+      [
+       "Keycloak",
+       "offline session not found → invalid_grant"
+      ],
+      [
+       "run_once",
+       "OAuthError → mark_needs_reauth, keep the row"
+      ]
+     ],
+     "inv": "Re-consent is a product flow, not an error: a dead grant becomes `needs_reauth`, never a silent delete.",
+     "goals": [
+      6
+     ],
+     "code": [
+      "tests/test_live.py:100-101",
+      "tests/test_live.py:153-158",
+      "src/memes_agent/worker.py:53-60",
+      "src/memes_agent/grants.py:53-55",
+      "docs/decisions.md:34"
+     ],
+     "quiz": [
+      "The worker catches `OAuthError` separately from other exceptions. Why?",
+      "`invalid_grant` is permanent, so retrying is pointless and the user must re-consent. A network error is temporary, so the grant is kept and retried on the next pass."
+     ]
+    }
+   ],
+   "flows": [
+    {
+     "id": "meme",
+     "name": "One meme: test_agent_fetches_a_meme_end_to_end",
+     "short": "One meme",
+     "steps": [
+      "meme-1",
+      "meme-2",
+      "meme-3",
+      "meme-4",
+      "meme-5",
+      "meme-6",
+      "meme-7",
+      "meme-8",
+      "meme-9"
+     ],
+     "dim_nodes": [
+      "worker",
+      "grants",
+      "kc-revoke"
+     ],
+     "dim_edges": [
+      "worker-grants",
+      "worker-loop"
+     ]
+    },
+    {
+     "id": "noperm",
+     "name": "No permission: a token without memes:read",
+     "short": "No permission",
+     "steps": [
+      "noperm-1",
+      "noperm-2",
+      "noperm-3"
+     ],
+     "dim_nodes": [
+      "worker",
+      "grants",
+      "kc-revoke",
+      "loop",
+      "llm",
+      "api-anthropic-com"
+     ],
+     "dim_edges": [
+      "worker-grants",
+      "worker-loop",
+      "loop-llm",
+      "loop-gateway",
+      "pytest--api-anthropic-com"
+     ]
+    },
+    {
+     "id": "bg",
+     "name": "Background: offline grant, refresh, revoke",
+     "short": "Background",
+     "steps": [
+      "bg-1",
+      "bg-2",
+      "bg-3",
+      "bg-4",
+      "bg-5"
+     ],
+     "dim_nodes": [],
+     "dim_edges": []
+    }
+   ]
+  }
+ },
+ "derived": {
+  "steps": {
+   "meme-1": {
+    "confidence": "decoded"
+   },
+   "meme-2": {
+    "confidence": "decoded"
+   },
+   "meme-3": {
+    "confidence": "decoded"
+   },
+   "meme-4": {
+    "confidence": "decoded"
+   },
+   "meme-5": {
+    "confidence": "decoded"
+   },
+   "meme-6": {
+    "confidence": "observed"
+   },
+   "meme-7": {
+    "confidence": "decoded"
+   },
+   "meme-8": {
+    "confidence": "decoded"
+   },
+   "meme-9": {
+    "confidence": "decoded"
+   },
+   "noperm-1": {
+    "confidence": "decoded"
+   },
+   "noperm-2": {
+    "confidence": "decoded"
+   },
+   "noperm-3": {
+    "confidence": "decoded"
+   },
+   "bg-1": {
+    "confidence": "decoded"
+   },
+   "bg-2": {
+    "confidence": "decoded"
+   },
+   "bg-3": {
+    "confidence": "decoded"
+   },
+   "bg-4": {
+    "confidence": "decoded"
+   },
+   "bg-5": {
+    "confidence": "decoded"
+   }
+  }
+ }
+}</script>
+<script>
+// ---------- data ----------
+const { trace: T, derived: D } = JSON.parse(document.getElementById("trace").textContent);
+// Claude's narrative if there is one; otherwise render's one-step-per-exchange tour (tour.py).
+const N = (T.narrative && (T.narrative.flows || []).length) ? T.narrative : D.narrative;
+const L = T.layout, CAP = N.captions || {}, GOALS = N.goals || {};
+// The diagram draws facts plus the narrative's additions (parts the capture can't see, declared
+// from code); trace.drawn() in Python is the same merge.
+const NAR = T.narrative || {};
+const DRAWN = Object.fromEntries(["boundaries", "nodes", "edges"].map((k) => [k, [...(T[k] || []), ...(NAR[k] || [])]]));
+const nameOf = (n) => (NAR.names || {})[n.id] || n.name;
+const byId = (list) => Object.fromEntries((list || []).map((x) => [x.id, x]));
+const NODES = byId(DRAWN.nodes), BOUNDS = byId(DRAWN.boundaries), STEPS = byId(N.steps), TOKENS = byId(T.tokens);
+const FLOWS = byId(N.flows), FLOW_IDS = N.flows.map((f) => f.id);
+
+// ---------- text: trace strings are data, never markup ----------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// Inline subset: `code`, **bold**, *italic*, [text](#in-page-anchor). Everything else is escaped.
+function md(s) {
+  return String(s ?? "").split(/(`[^`]*`)/).map((p, i) => i % 2 ? `<code>${esc(p.slice(1, -1))}</code>` :
+    esc(p).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>")
+      .replace(/\[([^\]]+)\]\((#[\w-]*)\)/g, '<a href="$2">$1</a>')).join("");
+}
+const weak = (c) => c === "inferred" || c === "unknown";
+
+// ---------- topology ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  if (parent) parent.append(e);
+  return e;
+}
+// A node is in the token zone if its boundary is, or its parent is (a component inside a server).
+function inTokenZone(n) {
+  for (let b = BOUNDS[n.boundary]; b; b = BOUNDS[b.parent]) if (b.token_zone) return true;
+  return n.parent && NODES[n.parent] ? inTokenZone(NODES[n.parent]) : false;
+}
+function drawDiagram() {
+  const svg = $("#dia"), [W, H] = L.viewbox;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("aria-label", (N.header || {}).diagram_alt || `Topology of ${T.meta.target}. The highlighted path shows the current step.`);
+  for (const b of DRAWN.boundaries) {
+    const [x, y, w, h] = L.boundaries[b.id];
+    el("rect", { class: b.token_zone ? "zone" : "group", x, y, width: w, height: h, rx: b.token_zone ? 14 : 12 }, svg);
+    const label = (b.token_zone ? `${b.name} · tokens live here` : b.name).toUpperCase();
+    el("text", b.token_zone ? { class: "zl", x: x + w - 10, y: y + 20, "text-anchor": "end" } : { class: "zl", x: x + 12, y: y + 18 }, svg, label);
+  }
+  for (const e of DRAWN.edges) {
+    const g = el("g", { class: "edge" + (e.dashed || weak(e.confidence) ? " dash" : ""), id: `e-${e.id}` }, svg);
+    el("path", { d: L.edges[e.id].path.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ") }, g);
+    el("title", {}, g, `${e.label} (${e.confidence})`);
+  }
+  for (const e of DRAWN.edges) {
+    const at = L.edges[e.id].label;
+    if (!at) continue;
+    (CAP.edges?.[e.id] || [e.label]).forEach((t, i) => el("text", { class: "el", x: at[0], y: at[1] + 14 * i }, svg, t));
+  }
+  for (const n of DRAWN.nodes) {
+    const [x, y, w, h] = L.nodes[n.id], nested = !!(n.parent || BOUNDS[n.boundary]?.parent);
+    const nt = n.holds_tokens === false && !inTokenZone(n), dx = n.parent ? 10 : 12;
+    const g = el("g", { class: `node${nested ? " sub" : ""}${nt ? " nt" : ""}`, id: `n-${n.id}` }, svg);
+    el("title", {}, g, `${nameOf(n)}: ${n.kind} (${n.confidence})`);
+    el("rect", { class: "box", x, y, width: w, height: h, rx: !nested ? 10 : h < 50 ? 6 : 8 }, g);
+    const lines = CAP.nodes?.[n.id] || (n.kind === "endpoint" ? [] : [n.kind.replace(/-/g, " ") + (n.confidence === "inferred" ? " (inferred)" : "")]);
+    if (h <= 32) {
+      el("text", { class: "m", x: x + 10, y: y + 19, style: "white-space:pre" }, g, lines.length ? `${nameOf(n).padEnd(7)} ${lines.join(" · ")}` : nameOf(n));
+    } else if (h < 50) {
+      el("text", { class: "t", x: x + 10, y: y + 18, style: "font-size:12px" }, g, nameOf(n));
+      lines.forEach((t, i) => el("text", { class: "m", x: x + 10, y: y + 35 + 16 * i }, g, t));
+    } else {
+      el("text", { class: "t", x: x + dx, y: y + 22 }, g, nameOf(n));
+      lines.forEach((t, i) => el("text", { class: "s", x: x + dx, y: y + 40 + 16 * i }, g, t));
+      if (nt) {
+        const by = y + 40 + 16 * (lines.length - 1) + 10, b = el("g", { class: "badge" }, g);
+        el("rect", { x: x + dx, y: by, width: 70, height: 18, rx: 4 }, b);
+        el("text", { x: x + dx + 6, y: by + 13 }, b, "no tokens");
+      }
+    }
+  }
+  el("g", { id: "packets" }, svg);
+}
+
+// ---------- state ----------
+const KEY = `authtrace:${T.meta.target}:`;
+const store = { get(k) { try { return localStorage.getItem(KEY + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(KEY + k, v); } catch {} } };
+let flow = FLOW_IDS[0], idx = 0, goal = 0, playing = false, playTimer = null;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function steps() { return FLOWS[flow].steps.map((id) => STEPS[id]); }
+function isTok(s) { return (s.segs || []).some((g) => g[3] === "tok"); }
+function matches(s) { return !goal || (s.goals || []).includes(goal); }
+
+// ---------- header, tours, goal chips ----------
+function drawChrome() {
+  const h = N.header || {};
+  $("#h-eyebrow").textContent = h.eyebrow || `${T.meta.target} · auth flow`;
+  $("#h-title").textContent = h.title || T.meta.target;
+  $("#h-intro").innerHTML = md(h.intro);
+  $("#h-chip").textContent = h.chip || ""; $("#h-chip").hidden = !h.chip;
+  for (const f of N.flows) {
+    const b = document.createElement("button");
+    b.id = `sc-${f.id}`; b.textContent = f.name; b.setAttribute("aria-pressed", "false");
+    b.onclick = () => { flow = f.id; idx = 0; render(); };
+    $("#tours").append(b);
+  }
+  for (const [n, [name]] of Object.entries(GOALS)) {
+    const b = document.createElement("button");
+    b.className = "goal"; b.dataset.g = n; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<b>G${esc(n)}</b>${esc(name)}`;
+    b.onclick = () => { goal = goal === +n ? 0 : +n; renderGoals();
+      if (goal && !matches(steps()[idx])) { const j = steps().findIndex(matches); if (j >= 0) idx = j; }
+      render(); };
+    $("#goals").append(b);
+  }
+}
+function renderGoals() { document.querySelectorAll(".goal").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.g === goal))); }
+
+// ---------- render ----------
+function render() {
+  const list = steps(), s = list[idx], F = FLOWS[flow];
+  const dimN = F.dim_nodes || [], dimE = F.dim_edges || [];
+  for (const id of FLOW_IDS) $(`#sc-${id}`).setAttribute("aria-pressed", String(id === flow));
+  const banner = $("#banner"); banner.hidden = !F.banner; banner.innerHTML = md(F.banner);
+
+  // dots
+  const dots = $("#dots"); dots.innerHTML = "";
+  list.forEach((st, i) => {
+    const d = document.createElement("button");
+    d.className = "stepdot" + (i === idx ? " cur" : "") + (isTok(st) ? " tok" : "") + (matches(st) ? "" : " dim");
+    d.textContent = i + 1; d.title = st.title; d.setAttribute("aria-label", `Step ${i + 1}: ${st.title}`);
+    d.onclick = () => { idx = i; render(); };
+    dots.append(d);
+  });
+  $("#prev").disabled = idx === 0; $("#next").disabled = idx === list.length - 1;
+
+  // diagram state
+  document.querySelectorAll(".node").forEach((n) => {
+    const id = n.id.slice(2);
+    n.classList.toggle("on", (s.nodes || []).includes(id));
+    n.classList.toggle("off", dimN.includes(id));
+  });
+  document.querySelectorAll(".edge").forEach((e) => {
+    const id = e.id.slice(2), segs = (s.segs || []).filter((g) => g[0] === id);
+    e.classList.toggle("on", segs.length > 0);
+    e.classList.toggle("tok", segs.some((g) => g[3] === "tok"));
+    e.classList.toggle("err", segs.length > 0 && segs.every((g) => g[3] === "err"));
+    e.classList.toggle("off", dimE.includes(id));
+  });
+
+  // card
+  const conf = D.steps[s.id]?.confidence;
+  const checks = s.checks ? `<div class="k"><span class="eyebrow">Who checks what</span><dl class="checks">${s.checks.map(([a, b]) => `<dt>${md(a)}</dt><dd>${md(b)}</dd>`).join("")}</dl></div>` : "";
+  const tags = [
+    conf ? `<span class="tag conf" data-level="${esc(conf)}" title="How this step is known (from the exchanges and code it cites)">${esc(conf)}</span>` : "",
+    ...(s.goals || []).map((g) => `<span class="tag g">G${esc(g)} ${esc((GOALS[g] || [""])[0])}</span>`),
+    ...(s.code || []).map((f) => `<span class="tag">${esc(f)}</span>`),
+  ].join("");
+  $("#card").innerHTML = `
+    <div class="head">
+      <span class="eyebrow">${esc(F.short || F.name)} · step ${idx + 1} of ${list.length}</span>
+      <h2>${esc(s.title)}</h2>
+      ${s.time ? `<span class="time">${esc(s.time)}</span>` : ""}
+    </div>
+    <p class="what">${md(s.what)}</p>
+    ${s.wire ? `<pre class="wire"></pre>` : ""}
+    ${checks}
+    ${s.inv ? `<p class="inv">${md(s.inv)}</p>` : ""}
+    ${s.note ? `<p class="note">${md(s.note)}</p>` : ""}
+    ${s.roles ? `<p class="roles"><b>OAuth roles:</b> ${md(s.roles)}</p>` : ""}
+    <div class="tags">${tags}</div>
+    ${s.quiz ? `<details class="quiz"><summary>${md(s.quiz[0])}</summary><p>${md(s.quiz[1])}</p></details>` : ""}`;
+  if (s.wire) $("#card .wire").textContent = s.wire;
+
+  store.set("flow", flow); store.set("idx", String(idx));
+  try { history.replaceState(null, "", `#${flow}-${idx + 1}`); } catch {}
+  startPackets(s);
+}
+
+// ---------- packets ----------
+let raf = 0;
+function packet(kind, label) {
+  const g = el("g", { class: `pk ${kind}` }, $("#packets"));
+  el("circle", { r: 7 }, g); el("text", { x: 11, y: -9 }, g, label);
+  return g;
+}
+function place(g, path, frac, dir) {
+  const len = path.getTotalLength(), p = path.getPointAtLength(dir > 0 ? frac * len : (1 - frac) * len);
+  g.setAttribute("transform", `translate(${p.x} ${p.y})`);
+}
+function startPackets(s) {
+  cancelAnimationFrame(raf); $("#packets").innerHTML = "";
+  const list = s.segs || [];
+  if (!list.length) return;
+  const segs = list.map(([e, dir, label, kind]) => ({ path: document.querySelector(`#e-${CSS.escape(e)} path`), dir, g: packet(kind, label) }));
+  if (reduce) { segs.forEach((x, i) => place(x.g, x.path, segs.length > 1 ? 0.3 + 0.4 * (i / (segs.length - 1)) : 0.5, x.dir)); return; }
+  const DUR = 1150, GAP = 650, total = segs.length * DUR + GAP; let t0 = 0;
+  const tick = (now) => {
+    if (!t0) t0 = now;
+    const t = (now - t0) % total, k = Math.min(Math.floor(t / DUR), segs.length - 1);
+    segs.forEach((x, i) => {
+      const show = i === k && t < segs.length * DUR;
+      x.g.style.opacity = show ? 1 : 0;
+      if (show) { const f = (t - i * DUR) / DUR; place(x.g, x.path, f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2, x.dir); }
+    });
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+
+// ---------- navigation ----------
+function go(delta) {
+  const list = steps(); let j = idx;
+  do { j += delta; } while (j >= 0 && j < list.length && goal && !matches(list[j]));
+  if (j >= 0 && j < list.length) { idx = j; render(); return true; }
+  return false;
+}
+$("#prev").onclick = () => go(-1);
+$("#next").onclick = () => go(1);
+$("#play").onclick = () => setPlay(!playing);
+function setPlay(on) {
+  playing = on; $("#play").setAttribute("aria-pressed", String(on));
+  $("#play").textContent = on ? "Pause" : "Auto-play";
+  clearInterval(playTimer);
+  if (on) playTimer = setInterval(() => { if (!go(1)) setPlay(false); }, 6500);
+}
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowRight") go(1); if (e.key === "ArrowLeft") go(-1);
+});
+
+// ---------- static sections ----------
+// A claim's value is a fact (from the token); who checks it and why it matters are narrative.
+function claimValue(key, v, claims) {
+  if (v === undefined) return "(not in token)";
+  if (["exp", "iat", "nbf", "auth_time"].includes(key) && typeof v === "number") {
+    const life = key === "exp" && typeof claims.iat === "number" ? `, iat + ${v - claims.iat} s` : "";
+    return `${v} (${new Date(v * 1000).toISOString().slice(11, 19)} UTC${life})`;
+  }
+  const s = Array.isArray(v) ? v.join(" ") : String(v);
+  return s.length > 40 ? `${s.slice(0, 12)}…${s.slice(-5)}` : s;
+}
+function drawInspector() {
+  const insp = N.inspector, tok = insp && TOKENS[insp.token];
+  if (!tok) return;
+  $("#inspector").hidden = false;
+  $("#i-eyebrow").textContent = insp.eyebrow || "Token";
+  $("#i-title").textContent = insp.title || "Token inspector";
+  $("#i-conf").textContent = tok.verified ? "verified" : tok.confidence;
+  $("#i-conf").dataset.level = tok.verified ? "verified" : tok.confidence;
+  $("#i-intro").innerHTML = md(insp.intro);
+  const claims = tok.claims || {};
+  $("#claims").innerHTML = (insp.claims || []).map(({ claim, checked_by, why }) => {
+    const key = claim.replace(/^header\./, ""), v = claim.startsWith("header.") ? (tok.header || {})[key] : claims[key];
+    return `<tr><td class="c"><code>${esc(claim)}</code></td><td class="v">${esc(claimValue(key, v, claims))}</td><td>${md(checked_by)}</td><td>${md(why)}</td></tr>`;
+  }).join("");
+}
+function drawGoalMap() {
+  const gmap = $("#gmap");
+  $("#goalmap").hidden = !Object.keys(GOALS).length;
+  for (const [n, [name, desc]] of Object.entries(GOALS)) {
+    const card = document.createElement("div"); card.className = "gcard";
+    card.innerHTML = `<h3><span class="mono" style="color:var(--accent)">G${esc(n)}</span> ${esc(name)}</h3><p>${md(desc)}</p><div class="jump"></div>`;
+    const jump = card.querySelector(".jump");
+    for (const f of N.flows) {
+      f.steps.forEach((sid, i) => {
+        const st = STEPS[sid];
+        if (!(st.goals || []).includes(+n)) return;
+        const b = document.createElement("button"); b.textContent = `${(f.short || f.name).split(" ")[0]} ${i + 1}`; b.title = st.title;
+        b.onclick = () => { flow = f.id; idx = i; render(); $(".layout").scrollIntoView({ behavior: reduce ? "auto" : "smooth" }); };
+        jump.append(b);
+      });
+    }
+    gmap.append(card);
+  }
+}
+function drawFindings() {
+  const rules = T.meta.rules || {}, list = T.findings || [];
+  if (!list.length && !Object.keys(rules).length) return;
+  $("#findings").hidden = false;
+  // A finding cites exchanges; jump to the first step (in any tour) that cites one of them.
+  const stepFor = (xid) => { for (const f of N.flows) { const i = f.steps.findIndex((sid) => (STEPS[sid].exchanges || []).includes(xid)); if (i >= 0) return [f.id, i]; } return null; };
+  $("#findrows").innerHTML = "";
+  for (const f of list) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="c"><code>${esc(f.rule)}</code></td><td><span class="tag conf" data-level="${f.severity === "critical" ? "unknown" : f.severity === "warn" ? "inferred" : "declared"}">${esc(f.severity)}</span></td>
+      <td><b>${esc(f.title)}</b><br><span style="color:var(--muted)">${md(f.detail)} <i>Fix:</i> ${md(f.fix)}</span></td><td class="jump"></td>`;
+    for (const xid of f.exchanges.slice(0, 8)) {
+      const at = stepFor(xid); if (!at) continue;
+      const b = document.createElement("button"); b.textContent = xid;
+      b.onclick = () => { flow = at[0]; idx = at[1]; render(); $(".layout").scrollIntoView({ behavior: reduce ? "auto" : "smooth" }); };
+      tr.querySelector(".jump").append(b);
+    }
+    $("#findrows").append(tr);
+  }
+  const passed = Object.entries(rules).filter(([, v]) => v === "passed").map(([k]) => k);
+  $("#passed").textContent = passed.length ? `Passed: ${passed.join(", ")}.` : "";
+  if (!list.length) $("#findings table").hidden = true;
+}
+function drawLogs() {
+  if (!(T.logs || []).length) return;
+  $("#logs").hidden = false;
+  for (const log of T.logs) {
+    const d = document.createElement("details"); d.className = "log"; d.open = !!log.open;
+    const sum = document.createElement("summary"); sum.textContent = log.title;
+    const pre = document.createElement("pre"); pre.textContent = log.text;
+    d.append(sum, pre); $("#logbox").append(d);
+  }
+  $("#lognote").innerHTML = md(N.logs_note);
+}
+
+// ---------- boot ----------
+(function boot() {
+  drawChrome(); drawDiagram(); drawInspector(); drawFindings(); drawGoalMap(); drawLogs();
+  const m = /^#([\w-]+)-(\d+)$/.exec(location.hash);
+  if (m && FLOWS[m[1]]) { flow = m[1]; idx = Math.min(+m[2] - 1, FLOWS[flow].steps.length - 1); }
+  else { const f = store.get("flow"), i = +store.get("idx"); if (FLOWS[f]) { flow = f; if (i >= 0 && i < FLOWS[f].steps.length) idx = i; } }
+  render();
+  // A step link in the prose ([text](#live-4)) changes the hash; render's own replaceState doesn't fire this.
+  addEventListener("hashchange", () => {
+    const h = /^#([\w-]+)-(\d+)$/.exec(location.hash);
+    if (h && FLOWS[h[1]]) { flow = h[1]; idx = Math.min(+h[2] - 1, FLOWS[flow].steps.length - 1); render(); $(".layout").scrollIntoView(); }
+  });
+})();
+</script>
+</body>
+</html>

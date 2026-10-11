@@ -4,6 +4,9 @@
   authtrace.py run [-o DIR] -- CMD     run CMD with capture hooks → DIR/exchanges.jsonl
   authtrace.py import-har HAR [-o DIR] a browser HAR → DIR/exchanges.jsonl, redacted
   authtrace.py build CAPTURE [-o OUT]  exchanges.jsonl (or its folder) → trace.json: facts and findings
+  authtrace.py show TRACE [ID ...]     a trace's ids, one line each; or those exchanges and tokens
+  authtrace.py narrate TRACE NARRATIVE put Claude's narrative.json into the trace, and lay it out again
+  authtrace.py check TRACE [--root DIR] lint, schema, unedited facts, confidence, evidence paths
   authtrace.py render TRACE [-o OUT]   trace.json → a single-file HTML viewer
   authtrace.py explain [--json] < TOKEN decode one token from stdin; never echoes it
 
@@ -12,7 +15,6 @@ strict (for sharing) or raw (local only; token values are written).
 
 Planned (see docs/authtrace/PLAN.md §15):
 
-  check        M4   validate a trace: schema, evidence, token and secret lint
   live         M6   serve the viewer locally with live capture
 
 Stdlib only, Python 3.9+.
@@ -38,7 +40,6 @@ PLAN = "docs/authtrace/PLAN.md §15"
 
 # EXTEND: when a command lands, remove it here and add a real subparser in main().
 PLANNED = {
-    "check": ("M4", "validate a trace"),
     "live": ("M6", "serve the viewer with live capture"),
 }
 
@@ -112,8 +113,14 @@ def cmd_build(args) -> int:
         return 1
     trace = build(records, run_meta, args.target)
     out = Path(args.output) if args.output else (src if src.is_dir() else src.parent) / "trace.json"
-    from .run import write_private
+    from .run import ensure_ignored, write_private
 
+    try:
+        ensure_ignored(out.parent)
+    except RunError as e:
+        print(f"authtrace build: {e}", file=sys.stderr)
+        return 2
+    out.parent.mkdir(parents=True, exist_ok=True)
     write_private(out, json.dumps(trace, ensure_ascii=False, indent=1) + "\n")
     rules = trace["meta"]["rules"]
     print(f"{out}: {len(trace['exchanges'])} exchanges, {len(trace['tokens'])} tokens, {len(trace['nodes'])} nodes")
@@ -127,6 +134,69 @@ def cmd_build(args) -> int:
     for f in fired:
         print(f"    {f['severity']:<8} {f['rule']:<21} {f['title']} ({', '.join(f['exchanges'][:6])}{'…' if len(f['exchanges']) > 6 else ''})")
     return 0
+
+
+def cmd_show(args) -> int:
+    from .show import detail, index
+
+    try:
+        trace = load(Path(args.trace))
+    except (OSError, ValueError) as e:
+        print(f"authtrace show: can't read {args.trace}: {e}", file=sys.stderr)
+        return 1
+    print(detail(trace, args.ids) if args.ids else index(trace))
+    return 0
+
+
+def cmd_narrate(args) -> int:
+    from .check import check_trace, default_root
+    from .layout import layout
+    from .run import write_private
+
+    src = Path(args.trace)
+    try:
+        trace = load(src)
+        narrative = json.loads(Path(args.narrative).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"authtrace narrate: can't read: {e}", file=sys.stderr)
+        return 1
+    if not isinstance(narrative, dict):
+        print("authtrace narrate: the narrative file must hold one JSON object (the narrative section)", file=sys.stderr)
+        return 1
+    # The narrative is Claude's, the facts the core's: replace only the narrative, then lay out
+    # again, since the narrative may add parts and captions that change the boxes.
+    trace["narrative"] = narrative
+    trace["layout"] = layout(trace)
+    # Everything check does except the git location, so a bad narrative never lands in the trace.
+    text = json.dumps(trace, ensure_ascii=False, indent=1) + "\n"
+    rep = check_trace(trace, text, Path(args.root) if args.root else default_root(src))
+    if not rep.ok:
+        print(f"authtrace narrate: {args.narrative} doesn't fit {src}; nothing written:", file=sys.stderr)
+        for problem in rep.errors:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+    write_private(src, text)
+    flows = narrative.get("flows") or []
+    print(f"{src}: narrative from {args.narrative}: {len(flows)} tour(s), {len(narrative.get('steps') or [])} step(s), "
+          f"{len(narrative.get('nodes') or [])} added node(s), {len(narrative.get('edges') or [])} added edge(s). "
+          f"Next: check.")
+    return 0
+
+
+def cmd_check(args) -> int:
+    from .check import check, format_report
+
+    src = Path(args.trace)
+    try:
+        rep = check(src, Path(args.root) if args.root else None)
+    except OSError as e:
+        print(f"authtrace check: can't read {src}: {e}", file=sys.stderr)
+        return 1
+    redaction = None
+    if rep.ok:
+        redaction = (load(src).get("meta") or {}).get("redaction")
+    print(format_report(src, rep, redaction))
+    return 0 if rep.ok else 1
 
 
 def cmd_explain(args) -> int:
@@ -178,6 +248,24 @@ def main(argv=None) -> int:
     p.add_argument("-o", "--output", help="where to write trace.json (default: next to the capture)")
     p.add_argument("--target", help="name of the traced system (default: the captured command's folder)")
     p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("show", help="list a trace's ids, or show some exchanges and tokens")
+    p.add_argument("trace", help="path to trace.json")
+    p.add_argument("ids", nargs="*", help="exchange or token ids (x3, t1) to show in full")
+    p.set_defaults(func=cmd_show)
+
+    p = sub.add_parser("narrate", help="put a narrative into a trace, replacing any earlier one")
+    p.add_argument("trace", help="path to trace.json (rewritten in place)")
+    p.add_argument("narrative", help="a JSON file holding the narrative section")
+    p.add_argument("--root", help="the target repo that evidence paths are relative to "
+                                  "(default: the folder holding the trace's .authtrace/)")
+    p.set_defaults(func=cmd_narrate)
+
+    p = sub.add_parser("check", help="validate a trace before rendering or sharing it")
+    p.add_argument("trace", help="path to trace.json")
+    p.add_argument("--root", help="the target repo that evidence paths are relative to "
+                                  "(default: the folder holding the trace's .authtrace/)")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("explain", help="decode one token from stdin, masking it in the output")
     p.add_argument("--json", action="store_true", help="print the result as JSON")

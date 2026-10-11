@@ -21,6 +21,8 @@ from . import __version__
 from .decode import classify
 from .layout import layout
 from .rules import LOOPBACK, run_rules
+from .run import exchange_lines
+from .trace import facts_hash
 
 KIND_TYPES = {"access_token": "access", "id_token": "id", "refresh_token": "refresh", "bearer": "access",
               "cookie": "session-cookie", "device_code": "code", "subject_token": "access", "logout_token": "logout"}
@@ -81,17 +83,27 @@ def build(records: list, run: dict | None = None, target: str | None = None) -> 
                  "captured_at": run.get("started"), "target": target or Path(run.get("cwd", "capture")).name,
                  "command": " ".join(run.get("command", [])) or None,
                  "mechanisms": run.get("mechanisms") or sorted({x["seen_by"] for x in exchanges}),
-                 "redaction": run.get("redaction")},
+                 "redaction": run.get("redaction"), "exit_code": run.get("exit_code"), "seconds": run.get("seconds")},
         "boundaries": [{"id": "machine", "name": "Your machine", "token_zone": True, "parent": None}],
         "nodes": nodes, "edges": _edges(exchanges, nodes, tok_by_id), "exchanges": exchanges, "tokens": tokens,
         "sessions": [],  # EXTEND: MCP sessions and cookies (needs unmasked session ids or an IdP adapter, M6)
-        "checks": [], "findings": [], "logs": [],
+        "checks": [], "findings": [], "logs": _logs(records),
     }
     trace["findings"], trace["meta"]["rules"] = run_rules(trace)
     if not any(n.get("boundary") == "machine" for n in nodes):
         trace["boundaries"] = []  # a HAR alone: nothing ran on this machine under capture
+    trace["meta"]["facts_hash"] = facts_hash(trace)
     trace["layout"] = layout(trace)
     return trace
+
+
+def _logs(records: list) -> list:
+    # EXTEND: the command's own output (pytest's log), once `run` can keep it redacted.
+    lines = exchange_lines(records)
+    if not lines:
+        return []
+    return [{"id": "capture", "title": f"authtrace capture: {len(lines)} exchange(s), redacted", "text": "\n".join(lines),
+             "confidence": "observed"}]
 
 
 def _token(tokens: list, by_fp: dict, ref: dict, xid: str) -> str:

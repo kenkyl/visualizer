@@ -38,7 +38,7 @@ class DoctorTests(unittest.TestCase):
 
 class PlannedCommandTests(unittest.TestCase):
     def test_planned_commands_exit_2_and_name_their_milestone(self):
-        for args, milestone in ((["check", "trace.json"], "M4"),):
+        for args, milestone in ((["live"], "M6"),):
             result = run(*args)
             self.assertEqual(result.returncode, 2, args)
             self.assertIn(milestone, result.stderr)
@@ -61,7 +61,8 @@ class PlannedCommandTests(unittest.TestCase):
 class StdlibOnlyTests(unittest.TestCase):
     @unittest.skipIf(sys.version_info < (3, 10), "sys.stdlib_module_names needs Python 3.10")
     def test_core_imports_only_stdlib(self):
-        allowed = set(sys.stdlib_module_names) | {"__future__", "authtrace"}
+        # viz is the repo's own stdlib-only script; authtrace borrows its secret patterns (_viz.py).
+        allowed = set(sys.stdlib_module_names) | {"__future__", "authtrace", "viz"}
         for path in [*PACKAGE.rglob("*.py"), LAUNCHER]:
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if isinstance(node, ast.Import):

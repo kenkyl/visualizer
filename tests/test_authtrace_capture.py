@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from authtrace.run import safe_argv  # noqa: E402
 from authtrace_fakes import CLIENT_SECRET, HTTPX_CLIENT, PASSWORD, URLLIB_CLIENT, FakeSystem, client_source  # noqa: E402
-from test_reference_lint import ONE_TIME_CLAIM, RAW_JWT  # noqa: E402
+from authtrace.lint import ONE_TIME_CLAIM, RAW_JWT  # noqa: E402
 
 LAUNCHER = ROOT / "scripts" / "authtrace.py"
 

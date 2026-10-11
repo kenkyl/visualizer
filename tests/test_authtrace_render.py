@@ -146,6 +146,15 @@ class ProblemTests(unittest.TestCase):
         self.assertTrue(any("nowhere" in p for p in cm.exception.problems))
 
 
+class NoNarrativeTests(unittest.TestCase):
+    def test_a_facts_only_trace_renders_with_a_derived_tour(self):
+        trace = fixture()
+        del trace["narrative"]
+        data = payload(render(trace))
+        self.assertNotIn("narrative", data["trace"])
+        self.assertEqual(len(data["derived"]["narrative"]["steps"]), len(trace["exchanges"]))
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(LAUNCHER), *map(str, args)], capture_output=True, text=True)
@@ -171,12 +180,12 @@ class CliTests(unittest.TestCase):
     def test_broken_trace_lists_problems(self):
         with tempfile.TemporaryDirectory() as tmp:
             trace = fixture()
-            trace["narrative"]["flows"] = []
+            trace["edges"][0]["to"] = "nowhere"
             src = Path(tmp) / "trace.json"
             src.write_text(json.dumps(trace), encoding="utf-8")
             result = self.run_cli("render", src)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("narrative.flows is empty", result.stderr)
+            self.assertIn("unknown to node 'nowhere'", result.stderr)
             self.assertFalse((Path(tmp) / "flow.html").exists())
 
     def test_unreadable_trace(self):

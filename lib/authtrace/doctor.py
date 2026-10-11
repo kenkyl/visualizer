@@ -72,7 +72,7 @@ def diagnose() -> dict:
         {"id": "render", "name": "render a trace (HTML viewer)", "milestone": "M1", "built": True,
          "missing": [] if python_ok else [f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+"],
          "note": "stdlib only"},
-        {"id": "core", "name": "decode, build, check", "milestone": "M3-M4", "built": False,
+        {"id": "core", "name": "build a trace, explain a token", "milestone": "M3", "built": True,
          "missing": [] if python_ok else [f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+"],
          "note": "stdlib only"},
         {"id": "hooks", "name": "capture a Python app (in-process hooks)", "milestone": "M2",

@@ -73,3 +73,30 @@ In the memes-agent trace, live step 4 (signature verification) is `declared`, be
 - **HAR import** redacts each entry on the way in and never copies the HAR. Static assets are counted, not kept.
 - **Tests run against a stdlib fake system** (`tests/authtrace_fakes.py`: an IdP, an MCP-style resource server and an LLM endpoint). The httpx tests skip unless httpx is installed. CI's 3.13 job installs httpx and httpx2 for them; locally, run `uv run --no-project --with httpx --with httpx2 python -m unittest discover -s tests`.
 - **The memes-agent acceptance (PLAN Appendix A) has not been run yet.** It needs Keycloak, memes-mcp and an Anthropic key. It's a manual step, `authtrace.py run -- uv run pytest -m live` in memes-agent. Its live suite has grown since 2026-10-03, so expect more than the 10 exchanges in Appendix A.
+
+## 2026-10-11: strict redaction keeps protocol structure
+
+Strict dropped what M3 needs: JSON-RPC `error.code`/`error.message`, the tool names in `tools/list` and in Claude's `tool_use` blocks, and the model name. It also let form bodies skip its field filter, so the password grant's `username` survived. Now strict walks into `content` and `tools` containers and into `error` objects, and every free-text and argument field inside them is still dropped: prompts, tool arguments, Claude's text, tool results. Form bodies go through the same filter. Checked on a real run: the capture holds none of the test's prompts, hints, username or email, and `sub` is hashed the same way in every token, so tokens still link.
+
+## 2026-10-11: M3, a lean `build`
+
+`authtrace build CAPTURE` turns `exchanges.jsonl` into `trace.json` facts, deterministically. This first version proves the design and leaves the rest behind `# EXTEND:` points:
+
+- **Classification** is a list of small decoders (`decode.py`): OAuth token (by grant), revoke and introspect, discovery, JWKS, PRM and the Bearer challenge, MCP (JSON-RPC method, stream, session end), Anthropic. The first match wins.
+- **Nodes** are one per capturing process and one per server origin. Roles are assigned by rule, each with a `why`: an origin serving OAuth endpoints is an authorization server; one receiving Bearer tokens whose `aud` names it, or that challenges without one, is a resource server; a model API is `llm-api`. Roles are `inferred`; a process's existence is `observed`.
+- **Traffic that must exist but wasn't captured** becomes a dashed `inferred` edge with its reason and how to confirm it. The first case: a resource server accepting RS256 tokens must fetch its issuer's keys.
+- **Findings v0 are the ten rules in `rules.py`.** `meta.rules` records each rule as `passed` or `fired`, so "no token reached the LLM" is a recorded fact.
+- **Layout** is role columns (`layout.py`), so a built trace renders with no hand-made layout.
+- **The default tour lives in render's derived data, not in `trace.json`:** one step per exchange, facts only (`tour.py`). `narrative` stays Claude's, and an un-narrated trace still renders.
+- **Steps can cite `tokens`,** and `step_confidence` counts them. M1's live step 2 is now `decoded`, as it should be.
+- **`explain`** decodes one token from stdin and never echoes it. That makes `/visualizer:explain-token` work.
+
+Deferred:
+- **JWKS signature checks.** They need raw tokens, which only exist inside the traced process, so verification will run in the recorder when the JWKS is fetched in the same process.
+- Sessions (MCP session ids are masked).
+- Cookie and PKCE rules (M5).
+- Merging several captures.
+- Containers and parent/child nodes in the layout.
+- An automatic token inspector.
+
+On memes-agent's live fixture, `build` finds Keycloak as the authorization server, memes-mcp as the resource server and pytest as the client. It infers memes-mcp's unseen JWKS fetch. `OAUTH-ROPC`, `MCP-VERSION-FALLBACK` and `HOST-ALIAS` fire, and `TOKEN-LEAK-LLM` passes.

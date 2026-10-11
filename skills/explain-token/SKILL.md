@@ -7,13 +7,17 @@ disable-model-invocation: true
 
 # Explain a token
 
-**Preview.** The decoder (`authtrace.py explain`) lands in M3; see [the plan](../../docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). Until then, say so and stop. Don't decode the token by hand.
+**Preview.** Don't decode the token by hand: the decoder does it and masks what must stay masked.
 
-When it lands, the flow is:
+The token is in `$ARGUMENTS`. Pass it on stdin through a quoted heredoc, never as a command-line argument and never through a file:
 
 ```
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py explain -   # token on stdin, never as an argument
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py explain <<'TOKEN'
+<the token>
+TOKEN
 ```
+
+If no token was given, ask for one, or suggest `pbpaste | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py explain` so it never enters the conversation.
 
 Then explain the result: the token type, the issuer, who it's for (`aud`) and who requested it (`azp`), the scopes, the lifetime, which party checks each claim, and any findings (for example `alg: none`, or a lifetime over an hour).
 

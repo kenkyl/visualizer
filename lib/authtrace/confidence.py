@@ -21,17 +21,19 @@ def weakest(levels) -> str:
     return max(levels, key=RANK.index)
 
 
-def step_confidence(step: dict, exchanges: dict) -> str:
+def step_confidence(step: dict, exchanges: dict, tokens: dict | None = None) -> str:
     """The confidence a narrative step has earned from its evidence.
 
-    step       a narrative step: `exchanges` (ids it cites) and `code` (file:line evidence),
-               either of which may be missing or empty
+    step       a narrative step: `exchanges` and `tokens` (ids it cites) and `code` (file:line
+               evidence), any of which may be missing or empty
     exchanges  every exchange in the trace, by id; each has a `confidence` from LEVELS
+    tokens     every token, by id, likewise (a decoded JWT is `decoded`)
 
     A step that cites nothing is Claude's reasoning alone, so it's `inferred`, not `unknown`:
     `unknown` marks an explicit gap in the facts, not prose without a citation.
     """
     cited = [exchanges[xid]["confidence"] for xid in step.get("exchanges") or []]
+    cited += [(tokens or {})[tid]["confidence"] for tid in step.get("tokens") or []]
     level = weakest(cited) if cited else "inferred"
     if step.get("code") and RANK.index(level) > RANK.index("declared"):
         level = "declared"

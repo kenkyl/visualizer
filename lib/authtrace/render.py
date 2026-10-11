@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from .confidence import step_confidence
+from .tour import default_narrative
 from .trace import problems
 
 TEMPLATE = Path(__file__).with_name("viewer.html")
@@ -24,9 +25,16 @@ class RenderError(Exception):
 
 
 def derive(trace: dict) -> dict:
-    """Values computed from facts plus narrative, never stored in the trace itself."""
+    """Values computed from facts plus narrative, never stored in the trace itself: each step's
+    confidence, and the default tour when nobody has narrated the trace yet."""
     exchanges = {x["id"]: x for x in trace.get("exchanges") or []}
-    return {"steps": {s["id"]: {"confidence": step_confidence(s, exchanges)} for s in trace["narrative"]["steps"]}}
+    tokens = {t["id"]: t for t in trace.get("tokens") or []}
+    narrative = trace.get("narrative") or {}
+    derived = {}
+    if not narrative.get("flows"):
+        narrative = derived["narrative"] = default_narrative(trace)
+    derived["steps"] = {s["id"]: {"confidence": step_confidence(s, exchanges, tokens)} for s in narrative["steps"]}
+    return derived
 
 
 def embed_json(data) -> str:
@@ -39,7 +47,7 @@ def render(trace: dict) -> str:
     found = problems(trace)
     if found:
         raise RenderError(found)
-    header = trace["narrative"].get("header") or {}
+    header = (trace.get("narrative") or {}).get("header") or {}
     title = header.get("page_title") or f"{trace['meta'].get('target', 'authtrace')} auth flow"
     page = TEMPLATE.read_text(encoding="utf-8")
     page = page.replace("{{TITLE}}", html.escape(title))

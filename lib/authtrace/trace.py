@@ -1,7 +1,8 @@
 """trace.json v0: load it, and find the problems that would stop a render.
 
-The contract is PLAN.md §6, with two v0 choices recorded in docs/decisions.md: tours live in
-`narrative.flows` (Claude writes them), and `layout` is required until auto-layout lands.
+The contract is PLAN.md §6, with v0 choices recorded in docs/decisions.md: tours live in
+`narrative.flows` (Claude writes them; without them the viewer shows one step per exchange), and
+`layout` is required (`build` computes one).
 
   facts       meta, boundaries, nodes, edges, exchanges, tokens, sessions, checks, findings, logs
   narrative   header, goals, flows, steps, captions, inspector, logs_note   (Claude's, never the core's)
@@ -66,9 +67,16 @@ def problems(trace: dict) -> list[str]:
             if e.get(end) not in ids["nodes"]:
                 out.append(f"edge {e.get('id')}: unknown {end} node {e.get(end)!r}")
     for x in trace.get("exchanges") or []:
+        for end in ("from", "to"):
+            if x.get(end) not in ids["nodes"]:
+                out.append(f"exchange {x.get('id')}: unknown {end} node {x.get(end)!r}")
         for t in x.get("tokens") or []:
             if t.get("token") not in ids["tokens"]:
                 out.append(f"exchange {x['id']}: unknown token {t.get('token')!r}")
+    for f in trace.get("findings") or []:
+        for xid in f.get("exchanges") or []:
+            if xid not in ids["exchanges"]:
+                out.append(f"finding {f.get('rule')}: unknown exchange {xid!r}")
 
     out += _narrative_problems(trace.get("narrative") or {}, ids)
     out += _layout_problems(trace.get("layout") or {}, ids)
@@ -81,8 +89,6 @@ def _narrative_problems(nar: dict, ids: dict) -> list[str]:
     steps = _ids(nar.get("steps") or [], "narrative.steps", out)
     flows = nar.get("flows") or []
     _ids(flows, "narrative.flows", out)
-    if not flows:
-        out.append("narrative.flows is empty: the viewer needs at least one tour")
     for f in flows:
         if not f.get("steps"):
             out.append(f"flow {f.get('id')}: no steps")
@@ -106,6 +112,9 @@ def _narrative_problems(nar: dict, ids: dict) -> list[str]:
         for xid in s.get("exchanges") or []:
             if xid not in ids["exchanges"]:
                 out.append(f"{where}: unknown exchange {xid!r}")
+        for tid in s.get("tokens") or []:
+            if tid not in ids["tokens"]:
+                out.append(f"{where}: unknown token {tid!r}")
         for g in s.get("goals") or []:
             if str(g) not in goals:
                 out.append(f"{where}: unknown goal {g!r}")
@@ -125,15 +134,15 @@ def _narrative_problems(nar: dict, ids: dict) -> list[str]:
 
 
 def _layout_problems(layout: dict, ids: dict) -> list[str]:
-    # EXTEND: role-column auto-layout (PLAN.md §11) fills in whatever isn't pinned here. Until
-    # then, every boundary, node and edge needs a position.
+    # `build` computes a full layout (layout.py). EXTEND: let a hand-written trace pin only some
+    # positions and have the rest laid out.
     out: list[str] = []
     if len(layout.get("viewbox") or []) != 2:
         out.append("layout.viewbox must be [width, height]")
     for kind in ("boundaries", "nodes"):
         boxes = layout.get(kind) or {}
         for iid in sorted(ids[kind] - set(boxes)):
-            out.append(f"layout.{kind}: no box for {iid!r} (auto-layout isn't built yet)")
+            out.append(f"layout.{kind}: no box for {iid!r} (run build, or add one)")
         for iid, box in boxes.items():
             if iid not in ids[kind]:
                 out.append(f"layout.{kind}: unknown id {iid!r}")
@@ -141,7 +150,7 @@ def _layout_problems(layout: dict, ids: dict) -> list[str]:
                 out.append(f"layout.{kind}.{iid} must be [x, y, width, height]")
     edges = layout.get("edges") or {}
     for iid in sorted(ids["edges"] - set(edges)):
-        out.append(f"layout.edges: no path for {iid!r} (auto-layout isn't built yet)")
+        out.append(f"layout.edges: no path for {iid!r} (run build, or add one)")
     for iid, geo in edges.items():
         if iid not in ids["edges"]:
             out.append(f"layout.edges: unknown id {iid!r}")

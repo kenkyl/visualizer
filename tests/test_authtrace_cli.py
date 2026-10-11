@@ -38,7 +38,7 @@ class DoctorTests(unittest.TestCase):
 
 class PlannedCommandTests(unittest.TestCase):
     def test_planned_commands_exit_2_and_name_their_milestone(self):
-        for args, milestone in ((["build", "x"], "M3"), (["explain", "-"], "M3"), (["check", "trace.json"], "M4")):
+        for args, milestone in ((["check", "trace.json"], "M4"),):
             result = run(*args)
             self.assertEqual(result.returncode, 2, args)
             self.assertIn(milestone, result.stderr)

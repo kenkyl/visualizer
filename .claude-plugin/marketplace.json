@@ -10,13 +10,13 @@
     {
       "name": "visualizer",
       "source": "./",
-      "description": "Architecture diagrams that stay current (GitHub-native Mermaid, updated and archived on every run), plus preview traces of OAuth, OIDC and MCP-auth flows.",
+      "description": "Architecture diagrams that stay current (GitHub-native Mermaid, updated and archived on every run), data-model tables from code and read-only database metadata, plus preview traces of OAuth, OIDC and MCP-auth flows.",
       "author": {
         "name": "Kyle Kennedy"
       },
       "repository": "https://github.com/kenkyl/visualizer",
       "license": "MIT",
-      "keywords": ["architecture", "diagram", "mermaid", "documentation", "oauth", "oidc", "mcp", "auth"]
+      "keywords": ["architecture", "diagram", "mermaid", "documentation", "oauth", "oidc", "mcp", "auth", "data-model", "schema", "database"]
     }
   ]
 }

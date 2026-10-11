@@ -523,6 +523,17 @@ def _heading_positions(lines):
 def check_repo(model: dict, root: Path, rep: Report) -> None:
     """Checks that need the repo: evidence paths and anchors exist, and sample secrets stay out."""
     tracked = git_files(root)
+    evidence = [(f"components[{c['id']}].evidence[{j}]", ev)
+                for c in model.get("components") or [] for j, ev in enumerate(c.get("evidence") or [])]
+    check_evidence(evidence, root, tracked, rep)
+    check_sample_secrets(model, root, tracked, rep)
+
+
+def check_evidence(evidence: list[tuple[str, str]], root: Path, tracked: list[str] | None, rep: Report) -> None:
+    """Each (where, evidence) must exist under root, be tracked, not be a secrets file, and anchor a real heading.
+
+    Also used by lib/datamodels, so keep the signature stable.
+    """
     tracked_set = set(tracked or [])
     tracked_dirs = {str(Path(p).parent.as_posix()) + "/" for p in tracked_set}
     for d in list(tracked_dirs):
@@ -530,28 +541,29 @@ def check_repo(model: dict, root: Path, rep: Report) -> None:
         for k in range(1, len(parts)):
             tracked_dirs.add("/".join(parts[:k]) + "/")
 
-    for c in model.get("components") or []:
-        for j, ev in enumerate(c.get("evidence") or []):
-            where = f"components[{c['id']}].evidence[{j}]"
-            path = _evidence_file(ev)
-            if FORBIDDEN_EVIDENCE_RE.search(path.rstrip("/")):
-                rep.error(where, f"'{path}' is a secrets file; never read or cite it")
-                continue
-            target = root / path
-            if not target.exists():
-                rep.error(where, f"'{path}' does not exist in {root}")
-                continue
-            if tracked is not None:
-                is_tracked = path in tracked_set or (target.is_dir() and path.rstrip("/") + "/" in tracked_dirs)
-                if not is_tracked:
-                    rep.warn(where, f"'{path}' isn't tracked by git, so the evidence link won't work for others")
-            if "#" in ev:
-                anchor = ev.split("#", 1)[1]
-                if target.is_dir() or target.suffix.lower() not in (".md", ".markdown"):
-                    rep.error(where, "anchors are only supported on Markdown files")
-                elif anchor not in github_slugs(target.read_text(encoding="utf-8", errors="replace")):
-                    rep.error(where, f"no heading in {path} has the anchor #{anchor}")
+    for where, ev in evidence:
+        path = _evidence_file(ev)
+        if FORBIDDEN_EVIDENCE_RE.search(path.rstrip("/")):
+            rep.error(where, f"'{path}' is a secrets file; never read or cite it")
+            continue
+        target = root / path
+        if not target.exists():
+            rep.error(where, f"'{path}' does not exist in {root}")
+            continue
+        if tracked is not None:
+            is_tracked = path in tracked_set or (target.is_dir() and path.rstrip("/") + "/" in tracked_dirs)
+            if not is_tracked:
+                rep.warn(where, f"'{path}' isn't tracked by git, so the evidence link won't work for others")
+        if "#" in ev:
+            anchor = ev.split("#", 1)[1]
+            if target.is_dir() or target.suffix.lower() not in (".md", ".markdown"):
+                rep.error(where, "anchors are only supported on Markdown files")
+            elif anchor not in github_slugs(target.read_text(encoding="utf-8", errors="replace")):
+                rep.error(where, f"no heading in {path} has the anchor #{anchor}")
 
+
+def check_sample_secrets(model: dict, root: Path, tracked: list[str] | None, rep: Report) -> None:
+    """No string in the model may contain a secret-named sample value from a tracked .env.example."""
     samples = _sample_secret_values(root, tracked)
     for where, value in _strings(model):
         for source, name, sample in samples:
@@ -1050,8 +1062,19 @@ def generated_state(text: str) -> str:
 # ---------------------------------------------------------------------------
 # README block
 
-START_RE = re.compile(r"^<!-- visualizer:start(?P<attrs>(?: [a-z]+=\S*)*) -->[ \t]*$")
-END_RE = re.compile(r"^<!-- visualizer:end -->[ \t]*$")
+MARKER = "visualizer"  # the architecture block; lib/datamodels uses "visualizer:data-models"
+ANY_START_RE = re.compile(r"^<!-- visualizer(?::[a-z][a-z-]*)?:start(?: [a-z]+=\S*)* -->[ \t]*$")
+ANY_END_RE = re.compile(r"^<!-- visualizer(?::[a-z][a-z-]*)?:end -->[ \t]*$")
+
+
+def marker_res(marker: str = MARKER):
+    """(start, end) regexes for one block's markers. Other visualizer blocks never match them."""
+    m = re.escape(marker)
+    return (re.compile(rf"^<!-- {m}:start(?P<attrs>(?: [a-z]+=\S*)*) -->[ \t]*$"),
+            re.compile(rf"^<!-- {m}:end -->[ \t]*$"))
+
+
+START_RE, END_RE = marker_res()
 
 
 def readme_block_inner(model: dict, view: dict, readme_rel: str, arch_rel: str) -> str:
@@ -1071,7 +1094,7 @@ class ReadmeError(Exception):
     pass
 
 
-def _marker_lines(lines: list[str]):
+def _marker_lines(lines: list[str], start_re=START_RE, end_re=END_RE):
     """Indexes of start and end marker lines, ignoring any inside fenced code blocks."""
     starts, ends, fence = [], [], None
     for i, raw in enumerate(lines):
@@ -1086,16 +1109,19 @@ def _marker_lines(lines: list[str]):
             continue
         if fence is not None:
             continue
-        if START_RE.match(line):
+        if start_re.match(line):
             starts.append(i)
-        elif END_RE.match(line):
+        elif end_re.match(line):
             ends.append(i)
     return starts, ends
 
 
 def upsert_readme(text: str | None, inner: str, model_rel: str, placement: str = "after-intro",
-                  insert: bool = False, create_title: str | None = None, force: bool = False):
+                  insert: bool = False, create_title: str | None = None, force: bool = False,
+                  marker: str = MARKER):
     """Return (new_text, status). Only the block between the markers is ever changed.
+
+    marker names the block ("visualizer" for architecture), so blocks from different skills can share a README.
 
     status: unchanged | updated | inserted | created | missing (markers absent and insert=False)
             | no-readme (file absent and create_title is None).
@@ -1115,10 +1141,10 @@ def upsert_readme(text: str | None, inner: str, model_rel: str, placement: str =
     lines = text.splitlines(keepends=True)
     eol = "\r\n" if sum(l.endswith("\r\n") for l in lines) > len(lines) / 2 else "\n"
     attrs = f" path={quote(model_rel, safe='/-._~')} hash={content_hash(inner)}"
-    block = [f"<!-- visualizer:start{attrs} -->"] + inner.split("\n") + ["<!-- visualizer:end -->"]
+    block = [f"<!-- {marker}:start{attrs} -->"] + inner.split("\n") + [f"<!-- {marker}:end -->"]
     block = [line + eol for line in block]
 
-    starts, ends = _marker_lines(lines)
+    starts, ends = _marker_lines(lines, *marker_res(marker))
     if starts or ends:
         if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
             raise ReadmeError(f"found {len(starts)} start and {len(ends)} end markers; expected one of each, "
@@ -1147,6 +1173,16 @@ def upsert_readme(text: str | None, inner: str, model_rel: str, placement: str =
 
 
 def _insert_at(lines: list[str], placement: str) -> int:
+    at = _placement_line(lines, placement)
+    # Never land inside another skill's block: go before it for before:, after it otherwise.
+    starts, ends = _marker_lines(lines, ANY_START_RE, ANY_END_RE)
+    for s, e in zip(starts, ends):
+        if s < at <= e:
+            return s if placement.startswith("before:") else e + 1
+    return at
+
+
+def _placement_line(lines: list[str], placement: str) -> int:
     heads = list(_heading_positions(lines))
     if placement == "end":
         return len(lines)

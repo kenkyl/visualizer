@@ -1,0 +1,125 @@
+{
+  "generator": "visualizer",
+  "snapshot_version": 1,
+  "engine": "redis",
+  "store": "cache",
+  "taken": "2026-10-11",
+  "server_version": "8.10.2",
+  "sampled": true,
+  "scope": {},
+  "entities": [
+    {
+      "name": "session:{id}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "hash",
+        "ttl": "up to 29m",
+        "estimate": 8,
+        "sample": 8,
+        "fields": [
+          {
+            "name": "csrf",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "expires",
+            "type": "string",
+            "presence": 0.88
+          },
+          {
+            "name": "user_id",
+            "type": "string",
+            "presence": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "name": "cart:{id}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "set",
+        "ttl": "none",
+        "estimate": 3,
+        "sample": 3,
+        "fields": []
+      }
+    },
+    {
+      "name": "product:{id}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "hash",
+        "ttl": "none",
+        "estimate": 3,
+        "sample": 3,
+        "fields": [
+          {
+            "name": "category",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "price",
+            "type": "string",
+            "presence": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "name": "config:feature-flags",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "string",
+        "ttl": "none",
+        "estimate": 1,
+        "sample": 1,
+        "fields": []
+      }
+    },
+    {
+      "name": "ratelimit:{hash}:{date}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "string",
+        "ttl": "none",
+        "estimate": 1,
+        "sample": 1,
+        "fields": []
+      }
+    },
+    {
+      "name": "idx:products",
+      "kind": "search-index",
+      "observed": {
+        "estimate": 3,
+        "details": {
+          "on": "hash",
+          "prefixes": "product:"
+        },
+        "fields": [
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "price",
+            "type": "numeric"
+          },
+          {
+            "name": "category",
+            "type": "tag"
+          }
+        ]
+      }
+    }
+  ],
+  "relationships": []
+}

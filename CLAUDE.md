@@ -41,6 +41,7 @@ Decisions are in `docs/decisions.md`.
 - unittest, no third-party test dependencies. Mark add-on points with `# EXTEND:` comments.
 - Golden fixtures: `VIZ_UPDATE_GOLDEN=1` (and `AUTHTRACE_UPDATE_GOLDEN=1` for authtrace) rewrites them after intended changes.
 - Record decisions in `docs/decisions.md`. Keep `CHANGELOG.md` current.
+- Bump `version` in `.claude-plugin/plugin.json`, and give the CHANGELOG a matching dated heading, whenever a change ships to main. `claude plugin update` compares only that version, so without a bump installed copies never get the change.
 
 ## Pairing (authtrace)
 Claude scaffolds the plumbing. The user writes the core pieces (decoders, rules, the skill's investigation step) during lessons. Explain the why, and keep modules small enough to read in one sitting.

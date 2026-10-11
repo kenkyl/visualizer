@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.3.0 (2026-10-11)
 
 ### Data models
 
@@ -31,16 +31,21 @@
 
 ### Auth flows
 
-- authtrace joins the plugin (scaffold): `/visualizer:auth-flow` and `/visualizer:explain-token` skills, in preview and run only when typed.
-- `lib/authtrace/`, a stdlib-only package launched by `scripts/authtrace.py`. `doctor` reports which capture modes this machine supports; the other commands are stubs that name their milestone.
-- `docs/authtrace/`: the authtrace plan and the 2026-10-03 memes-agent reference captures, with the dev passwords in the reference scripts moved to environment variables.
-- `docs/decisions.md` and `CLAUDE.md`.
 - authtrace M1: `authtrace.py render TRACE [-o OUT]` turns a trace.json (schema v0) into a single-file viewer. The memes-agent artifact is ported into `lib/authtrace/viewer.html`, which builds the topology, tours, step cards, token inspector, goal map and logs from the embedded trace. Narrative prose is a markdown subset, escaped, never HTML. Each step card shows a confidence tag derived from the exchanges and code the step cites (`confidence.step_confidence`).
 - authtrace M2: `authtrace.py run -- CMD` captures every HTTP call that Python processes make, children included, through httpx, httpx2, urllib, urllib3 or requests. It needs no change to the target: a sitecustomize injected through PYTHONPATH hooks the clients at the wire. Exchanges are redacted in-process (`--redaction dev|strict|raw`) and written to `.authtrace/run-<time>/exchanges.jsonl`, git-ignored. `authtrace.py import-har FILE` does the same for a browser HAR. The auth-flow skill can now capture; building a trace (M3) is next.
 - authtrace M3: `authtrace.py build CAPTURE` turns a capture into trace.json facts. It covers classification by protocol, tokens merged by fingerprint, nodes and roles inferred by rule with reasons, unseen-but-required traffic drawn as `inferred` edges, ten findings rules with pass/fire results, and a role-column layout. `render` shows an un-narrated trace as a one-step-per-exchange tour, plus a findings section. `authtrace.py explain` decodes a token from stdin without echoing it, which powers `/visualizer:explain-token`. Strict redaction keeps protocol structure (error messages, tool names) and now filters form bodies too.
 - `tests/fixtures/authtrace/memes-agent-live/`: a strict capture of memes-agent's live suite (39 exchanges) and the trace built from it.
 - `tests/fixtures/authtrace/memes-agent/`: the memes-agent trace (12 exchanges, 2 tours, 24 steps) and its golden render.
-- Tests: the authtrace CLI and its stdlib-only rule, render (golden, parity with the reference artifact, embedding safety, trace problems), and a lint that keeps raw JWTs, secrets and one-time claim values out of `docs/authtrace/` and authtrace's fixtures.
+- Tests: render (golden, parity with the reference artifact, embedding safety, trace problems), build, capture, redaction, rules, confidence, HAR import and explain. The reference lint now covers authtrace's fixtures too.
+- CI: the httpx capture tests run on Python 3.13.
+
+## 0.2.0 (2026-10-10)
+
+- authtrace joins the plugin (scaffold): `/visualizer:auth-flow` and `/visualizer:explain-token` skills, in preview and run only when typed.
+- `lib/authtrace/`, a stdlib-only package launched by `scripts/authtrace.py`. `doctor` reports which capture modes this machine supports; the other commands are stubs that name their milestone.
+- `docs/authtrace/`: the authtrace plan and the 2026-10-03 memes-agent reference captures, with the dev passwords in the reference scripts moved to environment variables.
+- `docs/decisions.md` and `CLAUDE.md`.
+- Tests: the authtrace CLI and its stdlib-only rule, and a lint that keeps raw JWTs, secrets and one-time claim values out of `docs/authtrace/`.
 - CI: unittest on Python 3.9 and 3.13.
 
 ## 0.1.0

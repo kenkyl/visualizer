@@ -40,7 +40,12 @@ STRICT_KEYS = {"grant_type", "client_id", "scope", "response_type", "redirect_ur
                "token_type", "expires_in", "refresh_expires_in", "error", "error_description", "jsonrpc",
                "method", "id", "protocolVersion", "resource", "authorization_servers", "issuer", "jwks_uri",
                "keys", "kid", "alg", "use", "kty", "stop_reason", "type", "name", "result", "params",
-               "bearer_methods_supported", "active", "aud", "iss", "exp", "iat", "azp"} | TOKEN_FIELDS
+               "bearer_methods_supported", "active", "aud", "iss", "exp", "iat", "azp", "model", "isError",
+               "capabilities", "serverInfo", "version"} | TOKEN_FIELDS
+# Containers strict walks into but never keeps as text: their free-text fields (a prompt, a tool's
+# arguments, Claude's reply, a tool result) still fall outside STRICT_KEYS and are dropped.
+STRICT_CONTAINERS = {"content", "tools"}
+STRICT_ERROR_KEYS = {"code", "message"}  # inside an `error` object: JSON-RPC's explanation
 MAX_STRING = 2000
 
 
@@ -152,13 +157,22 @@ class Scan:
     def walk(self, obj, where: str):
         if isinstance(obj, dict):
             if self.strict:
-                return {k: (self.field(k, v, where) if k in STRICT_KEYS else "…") for k, v in obj.items()}
+                return {k: (self.field(k, v, where) if self._strict_keeps(k, v, where) else "…")
+                        for k, v in obj.items()}
             return {k: self.field(k, v, where) for k, v in obj.items()}
         if isinstance(obj, list):
             return [self.walk(x, where) for x in obj]
         if isinstance(obj, str):
             return self.text(obj, where)
         return obj
+
+    @staticmethod
+    def _strict_keeps(key: str, value, where: str) -> bool:
+        if key in STRICT_KEYS:
+            return True
+        if key in STRICT_CONTAINERS:
+            return isinstance(value, (list, dict))
+        return key in STRICT_ERROR_KEYS and where.endswith(":error")
 
     # ---- URLs, headers, bodies ----
     def url(self, url: str, where: str = "url") -> str:
@@ -240,7 +254,7 @@ class Scan:
             except ValueError:
                 pass
         if ctype == "application/x-www-form-urlencoded":
-            return {k: self.field(k, v, where) for k, v in parse_qsl(raw, keep_blank_values=True)}
+            return self.walk(dict(parse_qsl(raw, keep_blank_values=True)), where)
         if ctype == "text/event-stream":
             return self.events(raw, where)
         if self.raw:

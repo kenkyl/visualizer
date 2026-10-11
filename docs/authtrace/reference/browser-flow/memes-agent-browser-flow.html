@@ -1,0 +1,987 @@
+<title>memes-agent Browser Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: the same wire-capture bench as the live-test artifact. Topology stays put on the left,
+   the step log scrolls on the right. Amber still means "an access token is on this hop". */
+:root {
+  --bg: #f3f5f3;
+  --surface: #ffffff;
+  --sunk: #e8ece9;
+  --fg: #18211e;
+  --muted: #56645f;
+  --line: #c3ccc8;
+  --accent: #0d7068;
+  --accent-soft: #dcefeb;
+  --token: #b06f0a;
+  --token-soft: #fbedd2;
+  --danger: #c0391b;
+  --danger-soft: #fbe2da;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1412; --surface: #151d1a; --sunk: #1b2622; --fg: #e2e9e6; --muted: #93a39d;
+    --line: #2f3d38; --accent: #3cc9b6; --accent-soft: #143430; --token: #f0b54a;
+    --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1412; --surface: #151d1a; --sunk: #1b2622; --fg: #e2e9e6; --muted: #93a39d;
+  --line: #2f3d38; --accent: #3cc9b6; --accent-soft: #143430; --token: #f0b54a;
+  --token-soft: #3a2c12; --danger: #ff8466; --danger-soft: #3d1d16; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body); }
+.wrap { max-width: 1400px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.6rem, 3.2vw, 2.3rem); font-weight: 750; }
+h2 { font-size: 1.35rem; font-weight: 750; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+p { margin: 0; }
+.eyebrow { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+header.top { display: grid; gap: 10px; margin-bottom: 18px; }
+header.top p { color: var(--muted); max-width: 76ch; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.result-chip { display: inline-flex; gap: 8px; align-items: center; font: 600 0.8rem var(--mono);
+  background: var(--accent-soft); color: var(--accent); padding: 4px 10px; border-radius: 999px; width: fit-content; }
+.result-chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.result-chip.tok { background: var(--token-soft); color: var(--token); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+.seg { display: inline-flex; flex-wrap: wrap; background: var(--sunk); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 0.92rem var(--body);
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; min-height: 40px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.goals { display: flex; flex-wrap: wrap; gap: 6px; }
+.goal { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px;
+  font: 600 0.8rem var(--body); padding: 6px 12px; cursor: pointer; min-height: 34px; }
+.goal b { font-family: var(--mono); color: var(--accent); margin-right: 4px; }
+.goal[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.goal[aria-pressed="true"] b { color: var(--bg); }
+button:focus-visible, .stepdot:focus-visible, summary:focus-visible { outline: 2px solid var(--token); outline-offset: 2px; }
+
+.layout { display: grid; gap: 18px; }
+@media (min-width: 1080px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 440px; align-items: start; }
+  .stage { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px; min-width: 0; }
+.svgscroll { overflow-x: auto; }
+.svgscroll svg { display: block; width: 100%; min-width: 660px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 6px 2px; font-size: 0.82rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.sw.tok { background: var(--token); } .sw.dat { background: var(--accent); } .sw.err { background: var(--danger); }
+.sw.nt { border-radius: 3px; border: 1.5px dashed var(--muted); }
+
+/* SVG */
+svg text { fill: var(--fg); font-family: var(--body); }
+svg .t { font: 700 13px var(--body); }
+svg .ts { font: 700 12px var(--body); }
+svg .s { font: 400 11px var(--body); fill: var(--muted); }
+svg .m { font: 400 10.5px var(--mono); fill: var(--muted); }
+svg .zl { font: 600 10.5px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+svg .el { font: 400 10px var(--mono); fill: var(--muted); }
+.zone { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 5; stroke-linecap: round; }
+.group { fill: none; stroke: var(--line); stroke-dasharray: 5 4; }
+.node rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; transition: fill .25s, stroke .25s; }
+.node.sub rect.box { fill: var(--sunk); }
+.node.nt rect.box { stroke-dasharray: 5 4; stroke: var(--muted); }
+.node.on rect.box { stroke: var(--accent); stroke-width: 2.2; fill: var(--accent-soft); }
+.badge rect { fill: var(--sunk); stroke: none; }
+.badge text { font: 600 10px var(--mono); fill: var(--muted); }
+.edge path { fill: none; stroke: var(--line); stroke-width: 1.8; transition: stroke .25s; }
+.edge.dash path { stroke-dasharray: 5 4; }
+.edge.on path { stroke: var(--accent); stroke-width: 2.6; }
+.edge.on.tok path { stroke: var(--token); }
+.edge.on.err path { stroke: var(--danger); }
+.pk circle { stroke: var(--surface); stroke-width: 2; }
+.pk text { font: 700 11px var(--mono); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.pk.tok circle { fill: var(--token); } .pk.tok text { fill: var(--token); }
+.pk.dat circle { fill: var(--accent); } .pk.dat text { fill: var(--accent); }
+.pk.err circle { fill: var(--danger); } .pk.err text { fill: var(--danger); }
+
+/* Step panel */
+.panel { display: grid; gap: 14px; min-width: 0; }
+.nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nav button.btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 10px;
+  font: 600 0.92rem var(--body); padding: 8px 14px; cursor: pointer; min-height: 42px; }
+.nav button.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.nav button.btn:disabled { opacity: 0.4; cursor: default; }
+.dots { display: grid; gap: 8px; }
+.phase { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center; }
+.phase > span { font: 600 0.7rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.phase > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.stepdot { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: 600 0.8rem var(--mono); cursor: pointer; display: grid; place-items: center; }
+.stepdot.cur { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.stepdot.tok:not(.cur) { border-color: var(--token); color: var(--token); }
+.stepdot.dim { opacity: 0.3; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.card .head { display: grid; gap: 4px; }
+.time { font: 600 0.78rem var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.conf { font: 700 0.68rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px;
+  background: var(--accent-soft); color: var(--accent); }
+.conf.declared { background: var(--token-soft); color: var(--token); }
+.what { font-size: 1rem; }
+.what code, .note code, .inv code, details code, td code { background: var(--sunk); padding: 1px 5px; border-radius: 4px; }
+pre.wire { margin: 0; background: var(--sunk); border-radius: 10px; padding: 12px 14px; overflow-x: auto;
+  font: 12px/1.55 var(--mono); color: var(--fg); white-space: pre; }
+.k { display: grid; gap: 6px; }
+.checks { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 0.92rem; margin: 0; }
+.checks dt { font-weight: 700; } .checks dd { margin: 0; color: var(--muted); }
+.note { background: var(--token-soft); border-radius: 10px; padding: 10px 12px; font-size: 0.93rem; }
+.inv { border: 1.5px solid var(--accent); border-radius: 10px; padding: 9px 12px; font-size: 0.93rem; }
+.inv::before { content: "INVARIANT  "; font: 700 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--accent); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font: 600 0.75rem var(--mono); padding: 3px 8px; border-radius: 6px; background: var(--sunk); color: var(--muted); }
+.tag.g { background: var(--accent-soft); color: var(--accent); }
+.roles { font-size: 0.9rem; color: var(--muted); }
+details.quiz { border-top: 1px solid var(--line); padding-top: 10px; }
+details.quiz summary { cursor: pointer; font-weight: 700; list-style: none; }
+details.quiz summary::before { content: "Check yourself  "; font: 700 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--token); }
+details.quiz p { margin-top: 8px; color: var(--muted); }
+
+section.more { margin-top: 40px; display: grid; gap: 14px; }
+section.more > p { color: var(--muted); max-width: 76ch; }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.7rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+td.rowh { font-weight: 700; min-width: 170px; }
+td.rowh small { display: block; font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+td.v { font-family: var(--mono); font-size: 0.8rem; word-break: break-word; min-width: 150px; }
+.cell { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 0.85rem; }
+.cell.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.cell.new { background: var(--token-soft); color: var(--token); font-weight: 600; }
+.cell.gone { background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.cell.none { color: var(--muted); }
+.gmap { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.gcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 8px; align-content: start; }
+.gcard p { color: var(--muted); font-size: 0.92rem; }
+.jump { display: flex; flex-wrap: wrap; gap: 5px; }
+.jump button { border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px;
+  font: 600 0.75rem var(--mono); padding: 4px 8px; cursor: pointer; min-height: 30px; }
+.facts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.fact { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 6px; }
+.fact b { font-family: var(--display); font-size: 1.05rem; }
+.fact p { color: var(--muted); font-size: 0.92rem; }
+details.log { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+details.log summary { cursor: pointer; font-weight: 700; }
+details.log pre { margin: 10px 0 0; overflow-x: auto; font: 11.5px/1.5 var(--mono); white-space: pre; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">memes-agent v1 · observed run · 2026-10-03</span>
+    <h1>Log in, make a meme, log out</h1>
+    <p>The whole v1 flow with a real browser in the loop. Headless Chrome clicked through login,
+      onboarding, one meme and logout while traced copies of memes-web and memes-mcp recorded both sides:
+      the browser's redirects and cookies, and the server-to-server calls the browser never sees.
+      Every payload below comes from that run, with token values replaced by fingerprints.</p>
+    <div class="chips">
+      <span class="result-chip">17 steps · 12 browser requests · 13 back-channel calls</span>
+      <span class="result-chip tok">access token: 7 Bearer requests, 0 in Claude requests</span>
+      <span class="result-chip">click → meme in 2.7 s (Claude 2.6 s)</span>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Jump to phase" id="phases"></div>
+    <div class="goals" id="goals" role="group" aria-label="Filter by learning goal"></div>
+  </div>
+
+  <div class="layout">
+    <div class="stage">
+      <div class="svgscroll">
+<svg id="dia" viewBox="0 0 1000 596" role="img" aria-label="Topology of the memes-agent v1 flow: the browser with its two cookie jars, the memes-web OAuth client with TokenStore and ProfileStore, the agent, Keycloak with its endpoints, the memes-mcp resource server, the Claude API and the imgflip image CDN. The highlighted path shows the current step.">
+  <!-- zone -->
+  <rect class="zone" x="200" y="30" width="570" height="556" rx="14"></rect>
+  <text class="zl" x="212" y="580">SERVER SIDE · TOKENS LIVE HERE</text>
+
+  <!-- edges -->
+  <g class="edge" id="e-br-web"><path d="M180 128 L220 128"></path></g>
+  <g class="edge" id="e-br-kc"><path d="M100 50 L100 22 L645 22 L645 40"></path></g>
+  <g class="edge" id="e-br-img"><path d="M50 50 L50 10 L890 10 L890 40"></path></g>
+  <g class="edge" id="e-web-kc"><path d="M480 131 L552 131"></path></g>
+  <g class="edge" id="e-web-agent"><path d="M350 190 L350 308"></path></g>
+  <g class="edge" id="e-gw-mcp"><path d="M468 414 L510 414 L510 340 L552 340"></path></g>
+  <g class="edge dash" id="e-mcp-kc"><path d="M645 318 L645 230"></path></g>
+  <g class="edge" id="e-llm-claude"><path d="M350 520 L350 566 L890 566 L890 426"></path></g>
+
+  <!-- edge labels -->
+  <text class="el" x="300" y="36">front channel: redirects</text>
+  <text class="el" x="896" y="30">image</text>
+  <text class="el" x="484" y="124">back ch.</text>
+  <text class="el" x="474" y="434">JSON-RPC</text>
+  <text class="el" x="474" y="448">+ Bearer</text>
+  <text class="el" x="652" y="256">JWKS · cached 1 h</text>
+  <text class="el" x="600" y="560">HTTPS · API key only</text>
+
+  <!-- browser -->
+  <g class="node nt" id="n-browser">
+    <rect class="box" x="20" y="50" width="160" height="200" rx="10"></rect>
+    <text class="t" x="34" y="74">Browser</text>
+    <text class="s" x="34" y="92">headless Chrome</text>
+  </g>
+  <g class="node sub" id="n-ck-app">
+    <rect class="box" x="32" y="104" width="136" height="56" rx="7"></rect>
+    <text class="ts" x="42" y="123">session cookie</text>
+    <text class="s" x="42" y="139">memes-web · sub,</text>
+    <text class="s" x="42" y="153">or OAuth state</text>
+  </g>
+  <g class="node sub" id="n-ck-kc">
+    <rect class="box" x="32" y="168" width="136" height="48" rx="7"></rect>
+    <text class="ts" x="42" y="187">Keycloak cookies</text>
+    <text class="s" x="42" y="203">KEYCLOAK_IDENTITY…</text>
+  </g>
+  <g class="badge"><rect x="34" y="224" width="110" height="18" rx="4"></rect><text x="40" y="237">no access token</text></g>
+
+  <!-- memes-web -->
+  <g class="node" id="n-web">
+    <rect class="box" x="220" y="40" width="260" height="150" rx="10"></rect>
+    <text class="t" x="234" y="62">memes-web</text>
+    <text class="s" x="234" y="80">OAuth client · FastAPI + authlib :8000</text>
+  </g>
+  <g class="node sub" id="n-tokenstore">
+    <rect class="box" x="232" y="94" width="118" height="82" rx="7"></rect>
+    <text class="t" x="242" y="114">TokenStore</text>
+    <text class="s" x="242" y="132">tokens by sub</text>
+    <text class="s" x="242" y="148">in memory</text>
+    <text class="m" x="242" y="166">fp:9e01795c…</text>
+  </g>
+  <g class="node sub" id="n-profiles">
+    <rect class="box" x="358" y="94" width="110" height="82" rx="7"></rect>
+    <text class="t" x="368" y="114">ProfileStore</text>
+    <text class="s" x="368" y="132">SQLite, by sub</text>
+    <text class="s" x="368" y="148">3 words</text>
+    <text class="m" x="368" y="166">scratch DB</text>
+  </g>
+
+  <!-- agent group -->
+  <rect class="group" x="220" y="280" width="260" height="256" rx="12"></rect>
+  <text class="zl" x="232" y="298">AGENT · SAME PROCESS</text>
+  <g class="node sub" id="n-loop">
+    <rect class="box" x="232" y="308" width="236" height="60" rx="8"></rect>
+    <text class="t" x="244" y="331">loop.py · run_agent</text>
+    <text class="s" x="244" y="350">model → tools → repeat</text>
+  </g>
+  <g class="node sub" id="n-gateway">
+    <rect class="box" x="232" y="384" width="236" height="60" rx="8"></rect>
+    <text class="t" x="244" y="407">tools.py · MCPToolGateway</text>
+    <text class="s" x="244" y="426">holds the token, adds Bearer</text>
+  </g>
+  <g class="node sub" id="n-llm">
+    <rect class="box" x="232" y="460" width="236" height="60" rx="8"></rect>
+    <text class="t" x="244" y="483">llm.py · ClaudeLLM</text>
+    <text class="s" x="244" y="502">only file that imports anthropic</text>
+  </g>
+
+  <!-- keycloak -->
+  <g class="node" id="n-kc">
+    <rect class="box" x="540" y="40" width="210" height="190" rx="10"></rect>
+    <text class="t" x="552" y="62">Keycloak</text>
+    <text class="s" x="552" y="78">authorization server · realm memes</text>
+  </g>
+  <g class="node sub" id="n-kc-auth">
+    <rect class="box" x="552" y="86" width="186" height="28" rx="6"></rect>
+    <text class="m" x="562" y="104">/auth    login form, SSO</text>
+  </g>
+  <g class="node sub" id="n-kc-token">
+    <rect class="box" x="552" y="118" width="186" height="28" rx="6"></rect>
+    <text class="m" x="562" y="136">/token   code → tokens</text>
+  </g>
+  <g class="node sub" id="n-kc-certs">
+    <rect class="box" x="552" y="150" width="186" height="28" rx="6"></rect>
+    <text class="m" x="562" y="168">/certs   JWKS public keys</text>
+  </g>
+  <g class="node sub" id="n-kc-logout">
+    <rect class="box" x="552" y="182" width="186" height="28" rx="6"></rect>
+    <text class="m" x="562" y="200">/logout  end SSO session</text>
+  </g>
+
+  <!-- mcp -->
+  <g class="node" id="n-mcp">
+    <rect class="box" x="540" y="270" width="210" height="276" rx="10"></rect>
+    <text class="t" x="552" y="292">memes-mcp</text>
+    <text class="s" x="552" y="308">resource server · :8001/mcp</text>
+  </g>
+  <g class="node sub" id="n-mw">
+    <rect class="box" x="552" y="318" width="186" height="44" rx="6"></rect>
+    <text class="ts" x="562" y="336">ResourceServerMiddleware</text>
+    <text class="m" x="562" y="353">sig · iss · aud · exp</text>
+  </g>
+  <g class="node sub" id="n-sess">
+    <rect class="box" x="552" y="368" width="186" height="40" rx="6"></rect>
+    <text class="ts" x="562" y="385">Session manager</text>
+    <text class="m" x="562" y="401">protocol · session id</text>
+  </g>
+  <g class="node sub" id="n-tool">
+    <rect class="box" x="552" y="414" width="186" height="44" rx="6"></rect>
+    <text class="ts" x="562" y="432">make_meme tool</text>
+    <text class="m" x="562" y="449">context.user_id = sub</text>
+  </g>
+  <g class="node sub" id="n-cat">
+    <rect class="box" x="552" y="464" width="186" height="44" rx="6"></rect>
+    <text class="ts" x="562" y="482">catalog.pick_meme</text>
+    <text class="m" x="562" y="499">26 memes · hints nudge</text>
+  </g>
+
+  <!-- claude -->
+  <g class="node nt" id="n-claude">
+    <rect class="box" x="800" y="330" width="180" height="96" rx="10"></rect>
+    <text class="t" x="814" y="354">Claude API</text>
+    <text class="s" x="814" y="372">words + tool schemas</text>
+    <text class="s" x="814" y="388">in, tool_use out</text>
+    <g class="badge"><rect x="814" y="398" width="70" height="18" rx="4"></rect><text x="820" y="411">no tokens</text></g>
+  </g>
+
+  <!-- imgflip -->
+  <g class="node nt" id="n-img">
+    <rect class="box" x="800" y="40" width="180" height="76" rx="10"></rect>
+    <text class="t" x="814" y="64">i.imgflip.com</text>
+    <text class="s" x="814" y="82">meme image CDN</text>
+    <g class="badge"><rect x="814" y="90" width="104" height="18" rx="4"></rect><text x="820" y="103">no memes cookie</text></g>
+  </g>
+
+  <g id="packets"></g>
+</svg>
+      </div>
+      <div class="legend">
+        <span><i class="sw tok"></i>access token on this hop</span>
+        <span><i class="sw dat"></i>data, no access token</span>
+        <span><i class="sw err"></i>error response</span>
+        <span><i class="sw nt"></i>never holds an access token</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="nav">
+        <button class="btn" id="prev" aria-label="Previous step">← Prev</button>
+        <button class="btn primary" id="next" aria-label="Next step">Next →</button>
+        <button class="btn" id="play" aria-pressed="false">Auto-play</button>
+      </div>
+      <div class="dots" id="dots" aria-label="Steps"></div>
+      <article class="card" id="card" aria-live="polite"></article>
+    </div>
+  </div>
+
+  <section class="more" id="layers">
+    <span class="eyebrow">Sessions</span>
+    <h2>Three session layers, at four moments</h2>
+    <p>The app session, Keycloak's SSO session and the tokens are separate things with separate
+      lifetimes. Each column is a snapshot from this run: the browser's cookies, memes-web's memory,
+      and Keycloak's admin API.</p>
+    <div class="tablewrap"><table id="matrix"></table></div>
+  </section>
+
+  <section class="more" id="tokens">
+    <span class="eyebrow">Learning goal 2</span>
+    <h2>Four signed things, side by side</h2>
+    <p>One login produced three tokens plus Keycloak's SSO cookie. They share a <code>sub</code> and a session id
+      (<code>sid 2Ckpo75D…</code>, also the callback's <code>session_state</code> and the admin API's session).
+      What separates them is who each one is for and who reads it.</p>
+    <div class="tablewrap"><table id="tokentable"></table></div>
+  </section>
+
+  <section class="more">
+    <span class="eyebrow">What this run proved</span>
+    <h2>Checked against real traffic</h2>
+    <div class="facts" id="facts"></div>
+  </section>
+
+  <section class="more">
+    <span class="eyebrow">Framing</span>
+    <h2>Learning goals → where to look</h2>
+    <div class="gmap" id="gmap"></div>
+  </section>
+
+  <section class="more">
+    <span class="eyebrow">Raw output</span>
+    <h2>Merged timeline</h2>
+    <p>Three streams merged by timestamp: <b>browser</b> (Playwright network events), <b>web</b> and <b>mcp</b>
+      (hooks around the HTTP clients and a few classes, added from outside; no repo files changed), and
+      <b>observer</b> (Keycloak admin API snapshots, which aren't part of the flow). Codes, state, nonces and
+      verifiers are truncated; tokens appear only as fingerprints.</p>
+    <details class="log" open>
+      <summary>timeline.txt, t = 0 at the first snapshot</summary>
+<pre>[ 0.000s] observer Keycloak admin API [before]: sessions for dummyuser1 = jQfHpj4K(memes-dev)
+[ 0.004s] web     ⇠ GET    / ← 200
+[ 0.008s] browser GET    http://localhost:8000/ → 200
+[ 0.027s] browser — page: Random Memes
+[ 0.121s] web     ⇠ GET    /login ← 302 Location: http://localhost:8080/realms/memes/protocol/openid-connect/auth?response_type=code&amp;client_
+[ 0.149s] web     → GET    http://localhost:8080/realms/memes/.well-known/openid-configuration ← 200 (5 ms)
+[ 0.160s] browser GET    http://localhost:8000/login → 302
+                   Set-Cookie: session
+[ 0.187s] browser GET    http://localhost:8080/realms/memes/protocol/openid-connect/auth?response_type=code&amp;client_id=memes-web&amp;redirect_uri=h… → 200
+                   Set-Cookie: AUTH_SESSION_ID, KC_AUTH_SESSION_HASH, KC_RESTART
+[ 0.255s] browser — page: Sign in to Random Memes
+[ 0.945s] web     ⇠ GET    /auth/callback ← 303 Location: /onboarding
+[ 0.947s] browser POST   http://localhost:8080/realms/memes/login-actions/authenticate?session_code=1BoxUJ…(43)&amp;execution=656014…(36)&amp;client_i… → 302
+                   form {"username": "dummyuser1", "password": "***", "credentialId": ""}
+                   Set-Cookie: KC_RESTART=∅, KEYCLOAK_IDENTITY, KEYCLOAK_SESSION
+[ 0.947s] web     → POST   http://localhost:8080/realms/memes/protocol/openid-connect/token grant_type=authorization_code code=192413…(98) code_verifier=XaSJ2f…(48) ← 200 (7 ms)
+[ 0.955s] web     → GET    http://localhost:8080/realms/memes/protocol/openid-connect/certs ← 200 (3 ms)
+[ 0.960s] web     authlib: ID token valid (iss, aud=memes-web, exp, nonce, at_hash) → userinfo.sub=95689752-…
+[ 0.960s] web     TokenStore.put(sub) access=fp:9e01795c id=fp:2d703050 refresh=fp:9c29d045
+[ 0.960s] web     ProfileStore.get(sub) found=False
+[ 0.961s] web     ⇠ GET    /onboarding ← 200
+[ 0.962s] web     ProfileStore.get(sub) found=False
+[ 0.962s] browser GET    http://localhost:8000/auth/callback?state=R7bCQ3…(30)&amp;session_state=2Ckpo7…(24)&amp;iss=http://localhost:8080/realms/meme… → 303
+                   Set-Cookie: session
+[ 0.966s] browser GET    http://localhost:8000/onboarding → 200
+[ 1.476s] browser — page: About you · Random Memes
+[ 1.567s] observer Keycloak admin API [after-login]: sessions for dummyuser1 = 2Ckpo75D(memes-web), jQfHpj4K(memes-dev)
+[ 1.622s] web     ⇠ POST   /onboarding ← 303 Location: /meme
+[ 1.623s] web     ProfileStore.save(sub, words=['chaotic', 'nerdy', 'sleepy'])
+[ 1.625s] web     ⇠ GET    /meme ← 200
+[ 1.625s] web     ProfileStore.get(sub) found=True
+[ 1.626s] browser POST   http://localhost:8000/onboarding → 303
+                   form {"word1": "chaotic", "word2": "nerdy", "word3": "sleepy"}
+[ 1.629s] browser GET    http://localhost:8000/meme → 200
+[ 1.635s] browser — page: Make a meme · Random Memes
+[ 1.673s] web     ⇠ POST   /meme ← 200
+[ 1.674s] web     ProfileStore.get(sub) found=True
+[ 1.674s] web     TokenStore.access_token(sub) → fp:9e01795c (899 s left)
+[ 1.674s] web     MCPToolGateway(url, token=fp:9e01795c)
+[ 1.677s] web     → POST   http://127.0.0.1:8001/mcp server/discover ← 400 (13 ms)  Bearer fp:9e01795c
+[ 1.678s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (10.8 ms)
+[ 1.681s] mcp     → GET    http://localhost:8080/realms/memes/protocol/openid-connect/certs ← 200 (6 ms)
+[ 1.688s] mcp     JWKS cache fetched
+[ 1.691s] web     → POST   http://127.0.0.1:8001/mcp initialize ← 200 (4 ms)  Bearer fp:9e01795c
+[ 1.691s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.2 ms)
+[ 1.691s] mcp     JWKS cache hit
+[ 1.697s] web     → POST   http://127.0.0.1:8001/mcp notifications/initialized ← 202 (3 ms)  Bearer fp:9e01795c
+[ 1.697s] web     → GET    http://127.0.0.1:8001/mcp ← 200 (3 ms)  Bearer fp:9e01795c
+[ 1.697s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.6 ms)
+[ 1.697s] mcp     JWKS cache hit
+[ 1.699s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.2 ms)
+[ 1.699s] mcp     JWKS cache hit
+[ 1.700s] web     → POST   http://127.0.0.1:8001/mcp tools/list ← 200 (3 ms)  Bearer fp:9e01795c
+[ 1.701s] mcp     JWKS cache hit
+[ 1.701s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.2 ms)
+[ 1.704s] web     Claude ← 1 message(s), tools=['Memes_MakeMeme']
+[ 1.706s] web     → POST   https://api.anthropic.com/v1/messages ← 200 (1620 ms)
+[ 3.353s] web     Claude → stop_reason=tool_use
+[ 3.353s] web     tools.call Memes_MakeMeme {"hints": ["chaotic", "nerdy", "sleepy"]}
+[ 3.355s] web     → POST   http://127.0.0.1:8001/mcp tools/call ← 200 (11 ms)  Bearer fp:9e01795c
+[ 3.355s] mcp     JWKS cache hit
+[ 3.356s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.4 ms)
+[ 3.358s] mcp     make_meme user=95689752-4a74-4283-85ce-5ab8c57bf262 hints=['chaotic', 'nerdy', 'sleepy'] -&gt; one-does-not-simply
+[ 3.394s] web     tool result id=one-does-not-simply matched_hint=nerdy
+[ 3.394s] web     Claude ← 3 message(s), tools=['Memes_MakeMeme']
+[ 3.395s] web     → POST   https://api.anthropic.com/v1/messages ← 200 (955 ms)
+[ 4.353s] web     Claude → stop_reason=end_turn
+[ 4.354s] web     → DELETE http://127.0.0.1:8001/mcp ← 200 (4 ms)  Bearer fp:9e01795c
+[ 4.356s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (1.1 ms)
+[ 4.356s] mcp     JWKS cache hit
+[ 4.365s] browser POST   http://localhost:8000/meme → 200
+[ 4.484s] browser — page: Make a meme · Random Memes
+[ 4.595s] observer Keycloak admin API [after-meme]: sessions for dummyuser1 = 2Ckpo75D(memes-web), jQfHpj4K(memes-dev)
+[ 4.625s] web     ⇠ GET    /logout ← 303 Location: http://localhost:8080/realms/memes/protocol/openid-connect/logout?post_logout_redirect_uri
+[ 4.625s] web     TokenStore.pop(sub) removed=True
+[ 4.629s] browser GET    http://localhost:8000/logout → 303
+                   Set-Cookie: session=∅
+[ 4.635s] web     ⇠ GET    / ← 200
+[ 4.640s] browser GET    http://localhost:8080/realms/memes/protocol/openid-connect/logout?post_logout_redirect_uri=http://localhost:8000/&amp;cli… → 302
+                   Set-Cookie: AUTH_SESSION_ID, KEYCLOAK_IDENTITY=∅, KEYCLOAK_SESSION=∅
+[ 4.641s] browser GET    http://localhost:8000/ → 200
+[ 5.151s] browser — page: Random Memes
+[ 5.240s] observer Keycloak admin API [after-logout]: sessions for dummyuser1 = jQfHpj4K(memes-dev)
+[ 5.240s] browser (+11 static assets not shown: i.imgflip.com, localhost:8080)</pre>
+    </details>
+  </section>
+</div>
+
+<script>
+const GOALS = {
+  1: ["OAuth roles", "Map resource owner, client, authorization server and resource server onto running code."],
+  2: ["Tokens", "What's inside each token, who it's for, and who checks iss, aud, exp, scope and sub."],
+  3: ["MCP resource server", "An MCP server built with Arcade's framework, protected as a resource server."],
+  4: ["Agent loop", "The hand-written loop: model, then tools, then repeat."],
+  5: ["Modular seams", "Small swappable modules: TokenStore, ProfileStore, the gateway, the LLM wrapper."],
+  6: ["Sessions & cookies", "Bonus for this flow: the app cookie, Keycloak's SSO session, and how tokens hang off them."],
+};
+
+const PHASES = [["login", "Log in"], ["onboard", "Onboarding"], ["meme", "Make a meme"], ["logout", "Log out"]];
+
+const STEPS = [
+  { ph: "login", t: "Click “Log in”", time: "+0.121 → 0.160 s",
+    segs: [["br-web", 1, "GET /login", "dat"], ["web-kc", 1, "discovery", "dat"], ["web-kc", -1, "metadata", "dat"], ["br-web", -1, "302 + cookie", "dat"]],
+    nodes: ["browser", "ck-app", "web", "kc"],
+    what: "memes-web hasn't talked to Keycloak yet, so authlib first fetches the <b>discovery document</b> (lazily, on first use) to learn the authorize, token, JWKS and logout URLs. It then creates <code>state</code>, <code>nonce</code> and a PKCE <code>code_verifier</code>, and redirects the browser to Keycloak with only the verifier's SHA-256 hash (<code>code_challenge</code>). It also sets the <code>session</code> cookie, which is where those three values are kept.",
+    wire: `⇠ GET /login                                            memes-web
+→ GET /realms/memes/.well-known/openid-configuration    ← 200 (5 ms)
+← 302 Location: http://localhost:8080/realms/memes/protocol/openid-connect/auth
+     ?response_type=code  &client_id=memes-web
+     &redirect_uri=http://localhost:8000/auth/callback
+     &scope=openid profile email memes:read
+     &state=R7bCQ3…(30)  &nonce=GTrOvJ…(20)
+     &code_challenge=Oi3q2p…(43)  &code_challenge_method=S256
+  Set-Cookie: session=…; path=/; Max-Age=1209600; httponly; samesite=lax
+
+session cookie, decoded (signed, not encrypted):
+{"_state_keycloak_R7bCQ3…": {"data": {
+    "redirect_uri": "http://localhost:8000/auth/callback",
+    "code_verifier": "XaSJ2f…(48)", "nonce": "GTrOvJ…(20)",
+    "url": "http://localhost:8080/…/auth?…"},
+  "exp": now + 3600 s}}`,
+    checks: [["authlib", "random state, nonce, verifier; S256 challenge"]],
+    roles: "Client (memes-web) starts the authorization code flow with PKCE",
+    note: "<b>Correction to the first artifact:</b> it said the browser holds neither the verifier nor the client secret. This capture shows the browser <i>does</i> hold the verifier, inside memes-web's signed, HttpOnly <code>session</code> cookie. With no server-side cache configured, authlib keeps OAuth state in the Starlette session, and that session lives in the cookie. The client secret does stay on the server.",
+    goals: [1, 6], code: ["src/memes_agent/web.py:139", "src/memes_agent/auth.py:15", "authlib …/framework_integration.py:44"],
+    quiz: ["If the verifier is in a cookie the browser holds, what is PKCE still protecting?", "It binds the code to the browser session that started the login, so a code lifted from a URL, a log or history is useless without that session's verifier. memes-web is also a confidential client, so redeeming any code needs its client secret too, and that never leaves the server. The cookie is signed (tamper-proof) but readable. A server-side session store would keep the verifier off the browser entirely."] },
+
+  { ph: "login", t: "Keycloak shows its login page", time: "+0.187 s",
+    segs: [["br-kc", 1, "GET /auth", "dat"], ["br-kc", -1, "login form", "dat"]],
+    nodes: ["browser", "ck-kc", "kc", "kc-auth"],
+    what: "Keycloak checks <code>client_id</code> and <code>redirect_uri</code> against the registered client, starts an <i>authentication session</i> (not yet an SSO session), and returns its login form. It sets three cookies scoped to <code>Path=/realms/memes/</code>, all <code>Secure</code> with <code>SameSite=None</code>.",
+    wire: `GET /realms/memes/protocol/openid-connect/auth?…     ← 200 (HTML form)
+  Cookie sent:  session                 ← memes-web's cookie (see note)
+  Set-Cookie:   AUTH_SESSION_ID         Secure; HttpOnly; SameSite=None
+                KC_AUTH_SESSION_HASH    Max-Age=60; Secure
+                KC_RESTART              Secure; HttpOnly`,
+    checks: [["Keycloak", "client_id known · redirect_uri matches the registration · response_type allowed"]],
+    roles: "The authorization server checks the client's registration",
+    note: "memes-web's <code>session</code> cookie, verifier and all, went to Keycloak. Cookies are scoped by host and path, <i>not by port</i>, so on <code>localhost</code> the two apps share one cookie jar. In production, <code>app.example.com</code> and <code>auth.example.com</code> would keep them apart. It doesn't happen the other way round, because Keycloak's <code>Path=/realms/memes/</code> never matches memes-web's paths.",
+    goals: [1, 6],
+    quiz: ["Why are Keycloak's cookies marked Secure on plain-http localhost?", "Browsers treat http://localhost as a secure context, so they accept Secure cookies there. Python's cookie jar doesn't, which is the gotcha recorded in the memes-agent handoff notes."] },
+
+  { ph: "login", t: "Submit the password to Keycloak", time: "+0.947 s",
+    segs: [["br-kc", 1, "username + password", "dat"], ["br-kc", -1, "302 + code", "dat"]],
+    nodes: ["browser", "ck-kc", "kc", "kc-auth"],
+    what: "The form posts straight to Keycloak, so memes-web never sees the password. Keycloak verifies it and creates SSO session <code>2Ckpo75D…</code> (the admin API shows a new session for client memes-web). It sets <code>KEYCLOAK_IDENTITY</code>, an HS512 JWT naming that session that only Keycloak can verify. Then it redirects to the callback with a one-time <code>code</code>.",
+    wire: `POST /realms/memes/login-actions/authenticate?session_code=1BoxUJ…&client_id=memes-web
+  form: username=dummyuser1  password=***
+← 302 Location: http://localhost:8000/auth/callback
+       ?state=R7bCQ3…(30)  &session_state=2Ckpo7…(24)
+       &iss=http://localhost:8080/realms/memes  &code=192413…(98)
+  Set-Cookie: KEYCLOAK_IDENTITY=<JWT · HS512 · typ Serialized-ID · sid 2Ckpo75D…>
+              KEYCLOAK_SESSION  Max-Age=36000
+              KC_RESTART        deleted`,
+    checks: [["Keycloak", "password against its stored hash · creates SSO session · binds the code to the challenge"]],
+    roles: "The resource owner authenticates to the authorization server",
+    inv: "Credentials live in the IdP. memes-web never receives the password.",
+    note: "The callback carries <code>iss</code>. That's RFC 9207 (authorization server issuer identification). It tells the client which server issued the code, which protects clients that use several authorization servers from mix-up attacks.",
+    goals: [1, 6],
+    quiz: ["Keycloak signs KEYCLOAK_IDENTITY with HS512 (a shared secret) but access tokens with RS256. Why the difference?", "Only Keycloak ever verifies its own SSO cookie, so a symmetric key works. Access and ID tokens are verified by others (memes-mcp, authlib), so they need a public key anyone can fetch from the JWKS. The refresh token is HS512 for the same reason as the cookie: only Keycloak reads it."] },
+
+  { ph: "login", t: "The callback: swap the code for tokens", time: "+0.945 → 0.955 s",
+    segs: [["br-web", 1, "code + cookie", "dat"], ["web-kc", 1, "code + verifier", "dat"], ["web-kc", -1, "3 tokens", "tok"]],
+    nodes: ["browser", "ck-app", "web", "kc", "kc-token"],
+    what: "The browser follows the redirect and sends the <code>session</code> cookie back. authlib finds the stored state by the returned <code>state</code> (the CSRF check), then calls Keycloak's <code>/token</code> directly, server to server, with the code, the verifier and its client credentials. Keycloak hashes the verifier, compares it with step 1's challenge, and returns three tokens in 7 ms.",
+    wire: `⇠ GET /auth/callback?state=R7bCQ3…&code=192413…      (Cookie: session)
+→ POST /realms/memes/protocol/openid-connect/token
+    grant_type=authorization_code   code=192413…(98)
+    code_verifier=XaSJ2f…(48)
+    redirect_uri=http://localhost:8000/auth/callback
+    Authorization: Basic <memes-web:secret>      (declared, see note)
+← 200 (7 ms)  {access_token, id_token, refresh_token,
+               expires_in: 900, refresh_expires_in: 1800,
+               scope: "openid email memes:read profile",
+               session_state: "2Ckpo75D…"}`,
+    checks: [["authlib", "returned state matches the stored one"], ["Keycloak", "SHA-256(verifier) == challenge · code unused · client secret · same redirect_uri"]],
+    conf: "declared",
+    note: "One part was not observed: the client authentication. authlib defaults to <code>client_secret_basic</code> (<code>oauth2/client.py:77</code>), and httpx adds that <code>Authorization: Basic</code> header after the point where the tracer reads the request. The body carries no secret, which matches that default. Confidence for this line is <i>declared</i> (from code), not <i>observed</i>.",
+    goals: [1, 2], code: ["src/memes_agent/web.py:143", "authlib oauth2/client.py:77"] },
+
+  { ph: "login", t: "Validate the ID token", time: "+0.955 → 0.960 s",
+    segs: [["web-kc", 1, "GET /certs", "dat"], ["web-kc", -1, "JWKS", "dat"]],
+    nodes: ["web", "kc", "kc-certs"],
+    what: "memes-web fetches Keycloak's JWKS for its own use. It needs to validate the <b>ID token</b>, the one token addressed to it (<code>aud=memes-web</code>). authlib checks the signature, <code>iss</code>, <code>aud</code> and <code>exp</code>, then that the <code>nonce</code> matches the one in the cookie, and <code>at_hash</code>, which ties this ID token to this exact access token.",
+    wire: `→ GET /realms/memes/protocol/openid-connect/certs     ← 200 (3 ms)
+ID token   RS256 · kid NSvMXk3s…
+  iss      http://localhost:8080/realms/memes       ✓
+  aud      memes-web                                ✓
+  nonce    GTrOvJ…(20)  == the cookie's nonce       ✓
+  at_hash  ngF5XH…  == half of SHA-256(access token) ✓
+  sub      95689752-4a74-4283-85ce-5ab8c57bf262`,
+    checks: [["authlib", "sig · iss · aud=memes-web · exp · nonce · at_hash"]],
+    note: "memes-web never inspects the <b>access token</b>. To the client it's opaque: a key it carries to the resource server. The <a href=\"#tokens\">token table</a> shows who reads which token.",
+    goals: [2], code: ["src/memes_agent/web.py:146"],
+    quiz: ["What attack does the nonce check stop?", "Replay of an ID token. The nonce was created for this login and stored in this browser's session. An ID token minted for a different login carries a different nonce and is rejected."] },
+
+  { ph: "login", t: "Store tokens server-side, swap the cookie", time: "+0.960 → 0.966 s",
+    segs: [["br-web", -1, "303 + new cookie", "dat"]],
+    nodes: ["web", "tokenstore", "profiles", "browser", "ck-app"],
+    what: "<code>TokenStore.put(sub, …)</code> keeps all three tokens in server memory. The cookie is rewritten: the OAuth state entry is gone, replaced by <code>{sub, name, email}</code> from the ID token. <code>ProfileStore.get(sub)</code> finds nothing, so this is a first visit and the redirect goes to <code>/onboarding</code>.",
+    wire: `TokenStore.put("95689752-…")   access=fp:9e01795c   id=fp:2d703050
+                               refresh=fp:9c29d045  expires_at=now+900 s
+ProfileStore.get("95689752-…") → None
+← 303 Location: /onboarding
+  Set-Cookie: session=…  → {"user": {"sub": "95689752-4a74-4283-85ce-5ab8c57bf262",
+                                      "name": "Dummy User",
+                                      "email": "dummyuser1@example.com"}}`,
+    inv: "Tokens never reach the browser. The cookie holds identity (<code>sub</code>), never a token.",
+    goals: [1, 2, 6], code: ["src/memes_agent/web.py:149", "src/memes_agent/auth.py:37"],
+    quiz: ["The app cookie lasts 14 days, the access token 15 minutes, the SSO session 30 minutes idle. What happens if you click at minute 20?", "TokenStore returns None (expired, with a 30 s leeway), so POST /meme answers 401 {redirect: /login}. The browser goes back to Keycloak, which still recognizes KEYCLOAK_IDENTITY (within 30 min idle and 60 min max) and issues a new code without asking for the password. memes-web gets fresh tokens. Past those limits, the password prompt comes back."] },
+
+  { ph: "onboard", t: "Onboarding: three words, keyed by sub", time: "+0.961 → 1.629 s",
+    segs: [["br-web", 1, "3 words + cookie", "dat"], ["br-web", -1, "303 /meme", "dat"]],
+    nodes: ["browser", "ck-app", "web", "profiles"],
+    what: "The page shows name and email read-only, taken from the ID-token claims stored in the cookie. The form posts three words. memes-web saves a <code>Profile</code> keyed by <code>sub</code> and redirects to <code>/meme</code>. This run used a scratch database, so your real profiles are untouched.",
+    wire: `⇠ GET  /onboarding   ← 200     ProfileStore.get(sub) → None
+⇠ POST /onboarding   form word1=chaotic word2=nerdy word3=sleepy
+     ProfileStore.save(sub="95689752-…", name="Dummy User",
+                       email="dummyuser1@example.com",
+                       words=["chaotic", "nerdy", "sleepy"])
+     ← 303 Location: /meme
+⇠ GET  /meme         ← 200     ProfileStore.get(sub) → found`,
+    inv: "A user's identity is the Keycloak <code>sub</code>: the profile key here, and <code>context.user_id</code> in memes-mcp.",
+    goals: [2, 5], code: ["src/memes_agent/web.py:82", "src/memes_agent/store.py:35"] },
+
+  { ph: "meme", t: "Click “Make me a meme”", time: "+1.673 → 1.674 s",
+    segs: [["br-web", 1, "POST /meme + cookie", "dat"], ["web-agent", 1, "token → gateway", "tok"]],
+    nodes: ["browser", "ck-app", "web", "tokenstore", "profiles", "loop", "gateway"],
+    what: "Page JavaScript calls <code>fetch('/meme', {method: 'POST'})</code>, so the browser sends only its cookie. memes-web reads <code>sub</code> from it, loads the profile, and asks <code>TokenStore</code> for the access token, which has 899 s left. The token goes into <code>MCPToolGateway</code> and the words into <code>run_agent</code>.",
+    wire: `⇠ POST /meme    (Cookie: session → sub)
+   ProfileStore.get(sub)          → [chaotic, nerdy, sleepy]
+   TokenStore.access_token(sub)   → fp:9e01795c  (899 s left)
+   MCPToolGateway("http://127.0.0.1:8001/mcp", token=fp:9e01795c)`,
+    checks: [["SessionMiddleware", "cookie signature valid → sub"], ["TokenStore", "exp − 30 s still in the future"]],
+    goals: [2, 4, 5], code: ["src/memes_agent/web.py:111"] },
+
+  { ph: "meme", t: "Open MCP: a version probe, and the first JWKS fetch", time: "+1.677 → 1.688 s",
+    segs: [["gw-mcp", 1, "discover + Bearer", "tok"], ["mcp-kc", 1, "GET /certs", "dat"], ["mcp-kc", -1, "JWKS", "dat"], ["gw-mcp", -1, "400", "err"]],
+    nodes: ["gateway", "mcp", "mw", "sess", "kc", "kc-certs"],
+    what: "This memes-mcp had just started, so its JWKS cache was empty. The first Bearer request triggered a real fetch of Keycloak's keys, which the first artifact could only infer. Validation passed in 10.8 ms (<code>client_id=memes-web</code>, <code>user_id</code> = the sub). Then the session manager rejected the 2026 protocol probe with 400, as before.",
+    wire: `→ POST /mcp  server/discover  Bearer fp:9e01795c          ← 400 (13 ms)
+   memes-mcp  validate fp:9e01795c → ok
+              user_id=95689752-…  client_id=memes-web     (10.8 ms)
+   memes-mcp  → GET /realms/memes/protocol/openid-connect/certs  ← 200 (6 ms)
+              JWKS cache: fetched (ttl 3600 s)
+              keys NSvMXk3s (RS256, sig) · IyuVBgJS (RSA-OAEP, enc)`,
+    checks: [["Middleware", "sig (kid NSvMXk3s) · iss · aud=…:8001/mcp · exp"], ["Session manager", "2026-07-28 unsupported → 400"]],
+    inv: "The MCP server trusts only JWTs it has validated (signature, <code>iss</code>, <code>aud</code>, <code>exp</code>).",
+    goals: [2, 3], code: ["servers/memes_mcp/src/memes_mcp/server.py:29"],
+    quiz: ["Why did the first validation take 10.8 ms and the later ones about 0.2 ms?", "The first had to fetch the JWKS over HTTP. After that the keys are cached for an hour, and validation is a local signature check."] },
+
+  { ph: "meme", t: "Handshake and tool discovery", time: "+1.691 → 1.704 s",
+    segs: [["gw-mcp", 1, "initialize · tools/list", "tok"], ["gw-mcp", -1, "session + schema", "dat"]],
+    nodes: ["gateway", "mw", "sess", "tool"],
+    what: "<code>initialize</code> (protocol 2025-11-25), <code>notifications/initialized</code>, the server→client event stream, then <code>tools/list</code>. That's four requests and four validations, all JWKS cache hits. The schema comes back as <code>Memes_MakeMeme</code>.",
+    wire: `→ POST initialize                  ← 200 (4 ms)   validate ok 0.2 ms · JWKS hit
+→ POST notifications/initialized   ← 202 (3 ms)   validate ok 0.6 ms · JWKS hit
+→ GET  /mcp  (event stream)        ← 200 (3 ms)   validate ok 0.2 ms · JWKS hit
+→ POST tools/list                  ← 200 (3 ms)   validate ok 0.2 ms · JWKS hit
+   schemas = [Memes_MakeMeme(hints: string[])]`,
+    goals: [3], code: ["src/memes_agent/tools.py:38", "src/memes_agent/tools.py:50"] },
+
+  { ph: "meme", t: "Claude, turn 1", time: "+1.706 → 3.353 s  (1.62 s)",
+    segs: [["llm-claude", 1, "words + schema", "dat"], ["llm-claude", -1, "tool_use", "dat"]],
+    nodes: ["loop", "llm", "claude"],
+    what: "The tracer scanned this request's URL and body for every token it had seen (access, ID, refresh) and found none. The only credential on this hop is memes-web's own API key. Claude answers with a <code>tool_use</code> block.",
+    wire: `→ POST https://api.anthropic.com/v1/messages        ← 200 (1620 ms)
+   model claude-sonnet-5-5 · 1 message · tools [Memes_MakeMeme]
+   user: "Make me a random meme. Words that describe me:
+          ['chaotic', 'nerdy', 'sleepy']"
+   token scan: 0 of 3 known tokens in URL or body
+   x-api-key: present (redacted)
+← stop_reason=tool_use
+   Memes_MakeMeme {"hints": ["chaotic", "nerdy", "sleepy"]}`,
+    inv: "Tokens never reach the LLM. Here that's checked against the actual request, not just stated.",
+    goals: [4], code: ["src/memes_agent/loop.py:32", "src/memes_agent/llm.py:39"] },
+
+  { ph: "meme", t: "tools/call as this user", time: "+3.355 → 3.394 s",
+    segs: [["gw-mcp", 1, "tools/call + Bearer", "tok"], ["gw-mcp", -1, "meme", "dat"]],
+    nodes: ["loop", "gateway", "mw", "tool", "cat"],
+    what: "The token is validated again, and its <code>sub</code> becomes <code>context.user_id</code>, as memes-mcp's own log line shows (captured this time). This pick <i>was</i> steered: the 50% roll hit, it chose the hint \"nerdy\", and picked among the nerdy-tagged memes.",
+    wire: `→ POST tools/call  Memes_MakeMeme {"hints": ["chaotic","nerdy","sleepy"]}  ← 200 (11 ms)
+   memes-mcp  validate ok (0.4 ms) · JWKS hit
+   memes-mcp  log: make_meme user=95689752-4a74-4283-85ce-5ab8c57bf262
+                   hints=['chaotic', 'nerdy', 'sleepy'] -> one-does-not-simply
+← {"id": "one-does-not-simply", "name": "One Does Not Simply",
+   "image_url": "https://i.imgflip.com/1bij.jpg",
+   "tags": ["nerdy", "wise", "serious", "fantasy"], "matched_hint": "nerdy"}`,
+    checks: [["Middleware", "sig · iss · aud · exp"], ["Tool", "context.user_id = 95689752-… (the sub)"], ["Scope", "memes:read is granted; no tool checks it yet"]],
+    goals: [2, 3, 4], code: ["servers/memes_mcp/src/memes_mcp/server.py:60", "servers/memes_mcp/src/memes_mcp/catalog.py:49"] },
+
+  { ph: "meme", t: "Claude, turn 2", time: "+3.395 → 4.353 s  (0.96 s)",
+    segs: [["llm-claude", 1, "tool_result", "dat"], ["llm-claude", -1, "end_turn", "dat"]],
+    nodes: ["loop", "llm", "claude"],
+    what: "The loop sends the matching <code>tool_result</code>, and Claude ends its turn with one sentence. That's two model calls in all, and again no token in the request.",
+    wire: `→ POST /v1/messages   3 messages (user · assistant tool_use · user tool_result)
+                                                        ← 200 (955 ms)
+← stop_reason=end_turn
+  "Here's your random meme, a classic "One Does Not Simply"
+   that suits your nerdy side: https://i.imgflip.com/1bij.jpg"`,
+    goals: [4], code: ["src/memes_agent/loop.py:35"] },
+
+  { ph: "meme", t: "The meme reaches the browser", time: "+4.354 → 4.365 s",
+    segs: [["gw-mcp", 1, "DELETE", "tok"], ["br-web", -1, "{meme, text}", "dat"], ["br-img", 1, "GET image", "dat"]],
+    nodes: ["gateway", "web", "browser", "img"],
+    what: "The gateway closes the MCP session with <code>DELETE</code>. memes-web returns JSON with the structured meme and Claude's sentence. The page loads the image straight from <code>i.imgflip.com</code>, a third party that receives no memes cookie and no token. The whole click took 2.7 s, 2.6 s of it in Claude.",
+    wire: `→ DELETE /mcp     ← 200 (4 ms)    validate ok · JWKS hit
+← 200 application/json
+  {"meme": {"id": "one-does-not-simply", "name": "One Does Not Simply",
+            "image_url": "https://i.imgflip.com/1bij.jpg", "matched_hint": "nerdy", …},
+   "text": "Here's your random meme, a classic …"}
+browser → GET https://i.imgflip.com/1bij.jpg     (static asset, cross-site)`,
+    goals: [4], code: ["src/memes_agent/web.py:130"],
+    quiz: ["Keycloak's lastAccess for session 2Ckpo75D didn't change between login and now, despite seven Bearer requests. Why?", "Neither memes-web nor memes-mcp asked Keycloak about the access token. memes-mcp validated it locally with cached public keys. The only Keycloak contact after login was memes-mcp's single JWKS fetch, which doesn't touch user sessions."] },
+
+  { ph: "logout", t: "Click “Log out”", time: "+4.625 → 4.629 s",
+    segs: [["br-web", 1, "GET /logout", "dat"], ["br-web", -1, "303 + clear cookie", "dat"]],
+    nodes: ["browser", "ck-app", "web", "tokenstore"],
+    what: "memes-web removes the user's tokens from TokenStore, expires the <code>session</code> cookie, and redirects to Keycloak's <code>end_session_endpoint</code> with the ID token as <code>id_token_hint</code>. Keeping the ID token after login is what makes this possible.",
+    wire: `⇠ GET /logout     TokenStore.pop(sub) → removed
+← 303 Location: http://localhost:8080/realms/memes/protocol/openid-connect/logout
+       ?post_logout_redirect_uri=http://localhost:8000/  &client_id=memes-web
+       &id_token_hint=<id_token fp:2d703050>
+  Set-Cookie: session=; expires=Thu, 01 Jan 1970 00:00:00 GMT`,
+    note: "The ID token passes through the browser here, once, in the logout URL. That's standard OIDC and low risk, since it grants no access and its <code>aud</code> is memes-web. It can still end up in browser history and server logs. The access and refresh tokens never leave memes-web.",
+    goals: [1, 6], code: ["src/memes_agent/web.py:156"] },
+
+  { ph: "logout", t: "Keycloak ends the SSO session", time: "+4.640 → 4.641 s",
+    segs: [["br-kc", 1, "end_session + hint", "dat"], ["br-kc", -1, "302 home", "dat"]],
+    nodes: ["browser", "ck-kc", "kc", "kc-logout"],
+    what: "Keycloak recognizes the ID token it issued and ends SSO session <code>2Ckpo75D</code> with no confirmation page; skipping that page is what the hint is for. It deletes its identity cookies and sends the browser home. The admin API confirms the session is gone. The <code>memes-dev</code> session left by an earlier password-grant test run is still there.",
+    wire: `GET /realms/memes/protocol/openid-connect/logout?…&id_token_hint=<id_token fp:2d703050>
+← 302 Location: http://localhost:8000/
+  Set-Cookie: KEYCLOAK_IDENTITY=; Max-Age=0    KEYCLOAK_SESSION=; Max-Age=0
+GET http://localhost:8000/    ← 200   (no app cookie)
+
+Keycloak admin API · sessions for dummyuser1
+  before login    jQfHpj4K (memes-dev)
+  after login     2Ckpo75D (memes-web) · jQfHpj4K (memes-dev)
+  after logout    jQfHpj4K (memes-dev)`,
+    roles: "RP-initiated logout: the client asks the authorization server to end the session",
+    goals: [1, 6],
+    quiz: ["After logout, could someone holding the access token still call memes-mcp?", "Yes, until exp (15 minutes after issue), because memes-mcp validates locally and never hears about the logout. Here nobody holds it, since TokenStore dropped it. The refresh token is dead, though: it's bound to the session Keycloak just ended."] },
+
+  { ph: "logout", t: "Back home, signed out", time: "+4.641 → 5.240 s",
+    segs: [["br-web", 1, "GET /", "dat"], ["br-web", -1, "home page", "dat"]],
+    nodes: ["browser", "web"],
+    what: "The browser lands on the home page with no app cookie, and memes-web shows the logged-out view. What's left: Keycloak's <code>AUTH_SESSION_ID</code> (an authentication-session cookie, not an identity), the profile in the database (profiles outlive sessions), and memes-mcp's JWKS cache.",
+    wire: `GET http://localhost:8000/   ← 200   (Cookie: none)
+browser cookies left: AUTH_SESSION_ID, KC_AUTH_SESSION_HASH   (Keycloak, path /realms/memes/)
+memes-web:   TokenStore[sub] empty · ProfileStore[sub] = [chaotic, nerdy, sleepy]
+memes-mcp:   JWKS cached until +3600 s`,
+    goals: [6] },
+];
+
+const MATRIX = {
+  cols: ["Before login", "After login · +1.5 s", "After meme · +4.6 s", "After logout · +5.2 s"],
+  rows: [
+    ["Browser · session cookie", "memes-web · 14 days · HttpOnly · Lax",
+      [["none", "—"], ["new", "{user: sub, name, email}"], ["on", "same"], ["gone", "deleted"]]],
+    ["Browser · KEYCLOAK_IDENTITY", "Keycloak SSO cookie · HS512 JWT · 10 h",
+      [["none", "—"], ["new", "sid 2Ckpo75D…"], ["on", "same"], ["gone", "deleted"]]],
+    ["memes-web · TokenStore[sub]", "in memory · access token 900 s",
+      [["none", "—"], ["new", "access · ID · refresh"], ["on", "899 s left at click"], ["gone", "removed"]]],
+    ["memes-web · ProfileStore[sub]", "SQLite (scratch DB for this run)",
+      [["none", "none"], ["none", "none → onboarding"], ["new", "chaotic, nerdy, sleepy"], ["on", "kept"]]],
+    ["Keycloak · SSO sessions", "dummyuser1 · idle 30 min · max 60 min",
+      [["on", "jQfHpj4K (memes-dev)"], ["new", "+ 2Ckpo75D (memes-web)"], ["on", "unchanged; lastAccess same"], ["gone", "2Ckpo75D ended"]]],
+    ["memes-mcp · JWKS cache", "keys from /certs · 1 h",
+      [["none", "empty (fresh start)"], ["none", "empty"], ["new", "fetched at first Bearer"], ["on", "still cached"]]],
+  ],
+};
+
+const TOKENS = {
+  cols: ["Access token", "ID token", "Refresh token", "KEYCLOAK_IDENTITY cookie"],
+  rows: [
+    ["Fingerprint", ["fp:9e01795c", "fp:2d703050", "fp:9c29d045", "fp:dded8400"]],
+    ["Signed with", ["RS256 · kid NSvMXk3s (public JWKS)", "RS256 · kid NSvMXk3s", "HS512 · Keycloak's own key", "HS512 · Keycloak's own key"]],
+    ["typ", ["Bearer", "ID", "Refresh", "Serialized-ID"]],
+    ["aud: who it's for", ["http://127.0.0.1:8001/mcp", "memes-web", "http://localhost:8080/realms/memes", "(none)"]],
+    ["azp: who asked", ["memes-web", "memes-web", "memes-web", "(none)"]],
+    ["sub", ["95689752-…", "95689752-…", "95689752-…", "95689752-…"]],
+    ["sid", ["2Ckpo75D…", "2Ckpo75D…", "2Ckpo75D…", "2Ckpo75D…"]],
+    ["Lifetime", ["900 s", "900 s", "1800 s (= SSO idle)", "36000 s"]],
+    ["Also carries", ["scope openid email memes:read profile; name, email (Keycloak copies them in)", "nonce, at_hash, auth_time; name, email", "scope incl. basic; Keycloak-internal claims", "state_checker"]],
+    ["Held by", ["memes-web TokenStore", "memes-web TokenStore", "memes-web TokenStore", "the browser (HttpOnly)"]],
+    ["Read or checked by", ["memes-mcp middleware, on all 7 requests", "authlib at the callback", "nobody yet (refresh is an EXTEND point)", "Keycloak only"]],
+    ["Travelled to", ["memes-mcp only, in Authorization headers", "Keycloak, as id_token_hint via the browser at logout", "nowhere after issue", "Keycloak, on every /realms/memes/ request"]],
+  ],
+};
+
+const FACTS = [
+  ["Access token stayed server-side", "Seen in 7 Authorization headers to memes-mcp and nowhere else. It never appeared in a browser response, a cookie or a URL."],
+  ["Claude never saw a token", "Both Claude requests were scanned for all three tokens and none was found. The only credential was memes-web's API key."],
+  ["Password went only to Keycloak", "The login form posted to Keycloak, and memes-web received only a code."],
+  ["PKCE ran end to end", "S256 challenge in the authorize URL, verifier in the code exchange, and the verifier stored in memes-web's signed cookie."],
+  ["Validation is local", "memes-mcp fetched the JWKS once, validated 7 times (10.8 ms the first time, about 0.2 ms after), and Keycloak's session lastAccess never moved."],
+  ["One session id ties it together", "sid 2Ckpo75D appears in all three tokens, the SSO cookie, the callback's session_state, and the admin API."],
+  ["Logout ended the SSO session", "The admin API showed 2Ckpo75D before logout and not after. TokenStore dropped the tokens."],
+  ["Dev-only quirk found", "On localhost, memes-web's session cookie (verifier inside) is sent to Keycloak too, because cookies ignore ports."],
+];
+
+// ---------- state ----------
+const $ = (s) => document.querySelector(s);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+let idx = 0, goal = 0, playing = false, playTimer = null;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isTok = (s) => s.segs.some((g) => g[3] === "tok");
+const matches = (s) => !goal || s.goals.includes(goal);
+
+// ---------- phase + goal controls ----------
+const phasesEl = $("#phases");
+for (const [id, name] of PHASES) {
+  const b = document.createElement("button");
+  b.textContent = name; b.dataset.ph = id; b.setAttribute("aria-pressed", "false");
+  b.onclick = () => { idx = STEPS.findIndex((s) => s.ph === id); render(); };
+  phasesEl.append(b);
+}
+const goalsEl = $("#goals");
+for (const [n, [name]] of Object.entries(GOALS)) {
+  const b = document.createElement("button");
+  b.className = "goal"; b.dataset.g = n; b.setAttribute("aria-pressed", "false");
+  b.innerHTML = `<b>G${n}</b>${name}`;
+  b.onclick = () => { goal = goal === +n ? 0 : +n;
+    goalsEl.querySelectorAll(".goal").forEach((x) => x.setAttribute("aria-pressed", String(+x.dataset.g === goal)));
+    if (goal && !matches(STEPS[idx])) { const j = STEPS.findIndex(matches); if (j >= 0) idx = j; }
+    render(); };
+  goalsEl.append(b);
+}
+
+// ---------- render ----------
+function render() {
+  const s = STEPS[idx];
+  phasesEl.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ph === s.ph)));
+
+  const dots = $("#dots"); dots.innerHTML = "";
+  for (const [id, name] of PHASES) {
+    const row = document.createElement("div"); row.className = "phase";
+    row.innerHTML = `<span>${name}</span><div></div>`;
+    STEPS.forEach((st, i) => {
+      if (st.ph !== id) return;
+      const d = document.createElement("button");
+      d.className = "stepdot" + (i === idx ? " cur" : "") + (isTok(st) ? " tok" : "") + (matches(st) ? "" : " dim");
+      d.textContent = i + 1; d.title = st.t; d.setAttribute("aria-label", `Step ${i + 1}: ${st.t}`);
+      d.onclick = () => { idx = i; render(); };
+      row.lastChild.append(d);
+    });
+    dots.append(row);
+  }
+  $("#prev").disabled = idx === 0; $("#next").disabled = idx === STEPS.length - 1;
+
+  document.querySelectorAll(".node").forEach((n) => n.classList.toggle("on", s.nodes.includes(n.id.slice(2))));
+  document.querySelectorAll(".edge").forEach((e) => {
+    const segs = s.segs.filter((g) => g[0] === e.id.slice(2));
+    e.classList.toggle("on", segs.length > 0);
+    e.classList.toggle("tok", segs.some((g) => g[3] === "tok"));
+    e.classList.toggle("err", segs.length > 0 && segs.every((g) => g[3] === "err"));
+  });
+
+  const conf = s.conf === "declared" ? `<span class="conf declared">observed + declared</span>` : `<span class="conf">observed</span>`;
+  const checks = s.checks ? `<div class="k"><span class="eyebrow">Who checks what</span><dl class="checks">${s.checks.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl></div>` : "";
+  const phaseName = PHASES.find((p) => p[0] === s.ph)[1];
+  const c = $("#card");
+  c.innerHTML = `
+    <div class="head">
+      <span class="eyebrow">${phaseName} · step ${idx + 1} of ${STEPS.length}</span>
+      <h2>${s.t}</h2>
+      <span class="time">${s.time} ${conf}</span>
+    </div>
+    <p class="what">${s.what}</p>
+    ${s.wire ? `<pre class="wire"></pre>` : ""}
+    ${checks}
+    ${s.inv ? `<p class="inv">${s.inv}</p>` : ""}
+    ${s.note ? `<p class="note">${s.note}</p>` : ""}
+    ${s.roles ? `<p class="roles"><b>OAuth roles:</b> ${s.roles}</p>` : ""}
+    <div class="tags">${s.goals.map((g) => `<span class="tag g">G${g} ${GOALS[g][0]}</span>`).join("")}${(s.code || []).map((f) => `<span class="tag">${f}</span>`).join("")}</div>
+    ${s.quiz ? `<details class="quiz"><summary>${s.quiz[0]}</summary><p>${s.quiz[1]}</p></details>` : ""}`;
+  if (s.wire) c.querySelector(".wire").textContent = s.wire;
+
+  store.set("bf-idx", String(idx));
+  try { history.replaceState(null, "", `#step-${idx + 1}`); } catch {}
+  startPackets(s);
+}
+
+// ---------- packets ----------
+const pk = $("#packets"); let raf = 0;
+function packet(kind, label) {
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("class", `pk ${kind}`);
+  g.innerHTML = `<circle r="7"></circle><text x="11" y="-9"></text>`;
+  g.querySelector("text").textContent = label;
+  pk.append(g); return g;
+}
+function place(g, path, frac, dir) {
+  const L = path.getTotalLength(), p = path.getPointAtLength(dir > 0 ? frac * L : (1 - frac) * L);
+  g.setAttribute("transform", `translate(${p.x} ${p.y})`);
+}
+function startPackets(s) {
+  cancelAnimationFrame(raf); pk.innerHTML = "";
+  if (!s.segs.length) return;
+  const segs = s.segs.map(([e, dir, label, kind]) => ({ path: document.querySelector(`#e-${e} path`), dir, g: packet(kind, label) }));
+  if (reduce) {
+    // Static layout: spread packets that share an edge so a request and its reply don't overlap.
+    const byEdge = {};
+    segs.forEach((x) => { (byEdge[x.path.id || x.path.parentNode.id] ||= []).push(x); });
+    Object.values(byEdge).forEach((list) => list.forEach((x, i) =>
+      place(x.g, x.path, list.length > 1 ? 0.2 + 0.6 * (i / (list.length - 1)) : 0.5, 1)));
+    return;
+  }
+  const D = 1150, GAP = 650, total = segs.length * D + GAP; let t0 = 0;
+  const tick = (now) => {
+    if (!t0) t0 = now;
+    const t = (now - t0) % total, k = Math.min(Math.floor(t / D), segs.length - 1);
+    segs.forEach((x, i) => {
+      const show = i === k && t < segs.length * D;
+      x.g.style.opacity = show ? 1 : 0;
+      if (show) { const f = (t - i * D) / D; place(x.g, x.path, f < 0.5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2, x.dir); }
+    });
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+
+// ---------- navigation ----------
+function go(delta) {
+  let j = idx;
+  do { j += delta; } while (j >= 0 && j < STEPS.length && goal && !matches(STEPS[j]));
+  if (j >= 0 && j < STEPS.length) { idx = j; render(); return true; }
+  return false;
+}
+function setPlay(on) {
+  playing = on; $("#play").setAttribute("aria-pressed", String(on));
+  $("#play").textContent = on ? "Pause" : "Auto-play";
+  clearInterval(playTimer);
+  if (on) playTimer = setInterval(() => { if (!go(1)) setPlay(false); }, 7000);
+}
+$("#prev").onclick = () => go(-1);
+$("#next").onclick = () => go(1);
+$("#play").onclick = () => setPlay(!playing);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") go(1);
+  if (e.key === "ArrowLeft") go(-1);
+});
+
+// ---------- static sections ----------
+$("#matrix").innerHTML = `<thead><tr><th>Layer</th>${MATRIX.cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
+  MATRIX.rows.map(([name, sub, cells]) => `<tr><td class="rowh">${name}<small>${sub}</small></td>${cells.map(([k, v]) => `<td><span class="cell ${k}">${v}</span></td>`).join("")}</tr>`).join("") + "</tbody>";
+$("#tokentable").innerHTML = `<thead><tr><th></th>${TOKENS.cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
+  TOKENS.rows.map(([name, vals]) => `<tr><td class="rowh">${name}</td>${vals.map((v) => `<td class="v">${v}</td>`).join("")}</tr>`).join("") + "</tbody>";
+$("#facts").innerHTML = FACTS.map(([h, p]) => `<div class="fact"><b>${h}</b><p>${p}</p></div>`).join("");
+const gmap = $("#gmap");
+for (const [n, [name, desc]] of Object.entries(GOALS)) {
+  const card = document.createElement("div"); card.className = "gcard";
+  card.innerHTML = `<h3><span class="mono" style="color:var(--accent)">G${n}</span> ${name}</h3><p>${desc}</p><div class="jump"></div>`;
+  STEPS.forEach((st, i) => {
+    if (!st.goals.includes(+n)) return;
+    const b = document.createElement("button"); b.textContent = `Step ${i + 1}`; b.title = st.t;
+    b.onclick = () => { idx = i; render(); document.querySelector(".layout").scrollIntoView({ behavior: reduce ? "auto" : "smooth" }); };
+    card.querySelector(".jump").append(b);
+  });
+  gmap.append(card);
+}
+
+// ---------- boot ----------
+(function boot() {
+  const m = /^#step-(\d+)$/.exec(location.hash);
+  if (m) idx = Math.min(Math.max(+m[1] - 1, 0), STEPS.length - 1);
+  else { const i = +store.get("bf-idx"); if (i >= 0 && i < STEPS.length) idx = i; }
+  render();
+})();
+</script>

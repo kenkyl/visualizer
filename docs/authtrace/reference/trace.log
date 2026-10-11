@@ -1,0 +1,33 @@
+[ 0.079s] KEYCLOAK   POST /token -> 200
+[ 0.079s] TOKEN      header={'alg': 'RS256', 'typ': 'JWT', 'kid': 'NSvMXk3svTz5NVhOGrxVHOrsV7djKe_rPJbWCl5jt0s'}
+[ 0.080s] TOKEN      claims={"iss": "http://localhost:8080/realms/memes", "aud": "http://127.0.0.1:8001/mcp", "sub": "95689752-4a74-4283-85ce-5ab8c57bf262", "azp": "memes-dev", "scope": "openid email memes:read profile", "exp": 1791006672, "iat": 1791005772, "preferred_username": "dummyuser1", "typ": "Bearer"}
+[ 0.080s] TOKEN      lifetime=900s, keys in response=['access_token', 'expires_in', 'id_token', 'not-before-policy', 'refresh_expires_in', 'refresh_token', 'scope', 'session_state', 'token_type']
+[ 0.087s] JWKS       kids=[["IyuVBgJS8eri5TbKqq_jdrDU1WIr0eE4G_a0fell0GM", "RSA-OAEP", "enc"], ["NSvMXk3svTz5NVhOGrxVHOrsV7djKe_rPJbWCl5jt0s", "RS256", "sig"]]
+[ 0.106s] MCP ->     POST auth=Bearer … session=- proto=2026-07-28 {"method": "server/discover", "id": 1, "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientInfo": {"name": "mcp", "version": "0.1.0"}, "io.modelcontextprotocol/clientCapabilities": {}}}}
+[ 0.108s] MCP <-     400 ct=application/json {"jsonrpc": "2.0", "error": {"code": -32600, "message": "Bad Request: Unsupported protocol version: 2026-07-28"}}
+[ 0.109s] MCP ->     POST auth=Bearer … session=- proto=- {"method": "initialize", "id": 2, "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "mcp", "version": "0.1.0"}, "_meta": {}}}
+[ 0.111s] MCP <-     200 ct=application/json 
+[ 0.111s] MCP ->     POST auth=Bearer … session=e3a8e760 proto=2025-11-25 {"method": "notifications/initialized"}
+[ 0.112s] MCP ->     GET auth=Bearer … session=e3a8e760 proto=2025-11-25 
+[ 0.114s] MCP <-     202 ct=application/json 
+[ 0.114s] MCP <-     200 ct=text/event-stream 
+[ 0.114s] MCP ->     POST auth=Bearer … session=e3a8e760 proto=2025-11-25 {"method": "tools/list", "id": 3, "params": {"_meta": {}}}
+[ 0.116s] MCP <-     200 ct=application/json 
+[ 0.117s] GATEWAY    schemas=[{"name": "Memes_MakeMeme", "description": "Pick a random classic meme, loosely inspired by the hints.", "input_schema": {"type": "object", "properties": {"hints": {"type": "array", "items": {"type": "string"}, "description": "A few words describing the user. They loosely steer the pick (not a search query)."}}, "additionalProperties": false}}]
+[ 0.117s] CLAUDE ->  turn 1: 1 messages, tools=['Memes_MakeMeme']
+[ 0.117s]            last message={"role": "user", "content": "Make me a random meme. Words that describe me: ['chaotic', 'nerdy', 'sleepy']"}
+[ 1.784s] CLAUDE <-  stop_reason=tool_use content=[{"id": "toolu_015ZKiJzmTR2Mx7i9srcqp4i", "caller": {"type": "direct"}, "input": {"hints": ["chaotic", "nerdy", "sleepy"]}, "name": "Memes_MakeMeme", "type": "tool_use"}]
+[ 1.784s] GATEWAY    call Memes_MakeMeme {'hints': ['chaotic', 'nerdy', 'sleepy']}
+[ 1.785s] MCP ->     POST auth=Bearer … session=e3a8e760 proto=2025-11-25 {"method": "tools/call", "id": 4, "params": {"name": "Memes_MakeMeme", "arguments": {"hints": ["chaotic", "nerdy", "sleepy"]}, "_meta": {}}}
+[ 1.791s] MCP <-     200 ct=application/json 
+[ 1.808s] GATEWAY    result is_error=False data={'id': 'trade-offer', 'name': 'Trade Offer', 'image_url': 'https://i.imgflip.com/54hjww.jpg', 'tags': ['negotiator', 'confident', 'business', 'hustler'], 'matched_hint': None}
+[ 1.808s] CLAUDE ->  turn 2: 3 messages, tools=['Memes_MakeMeme']
+[ 1.808s]            last message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_015ZKiJzmTR2Mx7i9srcqp4i", "content": "{\"id\": \"trade-offer\", \"name\": \"Trade Offer\", \"image_url\": \"https://i.imgflip.com/54hjww.jpg\", \"tags\": [\"negotiator\", \"confident\", \"business\", \"hustler\"], \"matched_hint\": null}"}]}
+[ 3.036s] CLAUDE <-  stop_reason=end_turn content=[{"text": "Here's your random meme, the classic \"Trade Offer\", and I hope it suits your chaotic, nerdy, sleepy self! \ud83d\ude04\n\nhttps://i.imgflip.com/54hjww.jpg", "type": "text"}]
+[ 3.037s] MCP ->     DELETE auth=Bearer … session=e3a8e760 proto=2025-11-25 
+[ 3.041s] MCP <-     200 ct=application/json 
+[ 3.042s] RESULT     steps=2 text='Here\'s your random meme, the classic "Trade Offer", and I hope it suits your chaotic, nerdy, sleepy self! 😄\n\nhttps://i.imgflip.com/54hjww.jpg'
+[ 3.042s] RESULT     meme={'id': 'trade-offer', 'name': 'Trade Offer', 'image_url': 'https://i.imgflip.com/54hjww.jpg', 'tags': ['negotiator', 'confident', 'business', 'hustler'], 'matched_hint': None}
+[ 3.054s] NO TOKEN   401 WWW-Authenticate=Bearer resource_metadata="http://127.0.0.1:8001/.well-known/oauth-protected-resource/mcp"
+[ 3.063s] PRM        200 {"resource":"http://127.0.0.1:8001/mcp","authorization_servers":["http://localhost:8080/realms/memes"],"bearer_methods_supported":["header"]}
+access_token prefix (redacted): eyJhbGciOiJS…(redacted)

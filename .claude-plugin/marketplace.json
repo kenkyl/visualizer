@@ -10,13 +10,13 @@
     {
       "name": "visualizer",
       "source": "./",
-      "description": "Architecture diagrams that stay current: a JSON model of the repo rendered as GitHub-native Mermaid, updated and archived on every run.",
+      "description": "Architecture diagrams that stay current (GitHub-native Mermaid, updated and archived on every run), plus preview traces of OAuth, OIDC and MCP-auth flows.",
       "author": {
         "name": "Kyle Kennedy"
       },
       "repository": "https://github.com/kenkyl/visualizer",
       "license": "MIT",
-      "keywords": ["architecture", "diagram", "mermaid", "documentation"]
+      "keywords": ["architecture", "diagram", "mermaid", "documentation", "oauth", "oidc", "mcp", "auth"]
     }
   ]
 }

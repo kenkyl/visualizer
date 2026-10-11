@@ -13,3 +13,11 @@ The M3 fixture: the first real capture by `authtrace run`, the input `build` mus
   tool arguments, Claude replies or tool results.
 - memes-mcp was already running, so its side (token validation, the JWKS fetch) isn't here. M3
   must show it as `inferred`/`declared`, not drop it.
+
+## The narrated run (M4 acceptance)
+
+- `narrative.json` was written on 2026-10-11 by a fresh Claude session following
+  `skills/auth-flow/SKILL.md` in memes-agent, from this capture plus memes-agent's code and its
+  installed libraries. Its one personal value (a dev username) was replaced before committing.
+- `flow.html` is the golden page: this trace plus that narrative, through `narrate` and `render`.
+  Set `MEMES_AGENT_REPO` to check its evidence paths against a memes-agent checkout too.

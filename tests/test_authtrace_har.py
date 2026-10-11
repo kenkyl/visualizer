@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from authtrace.har import records  # noqa: E402
 from authtrace_fakes import jwt  # noqa: E402
-from test_reference_lint import RAW_JWT  # noqa: E402
+from authtrace.lint import RAW_JWT  # noqa: E402
 
 ID_TOKEN = jwt({"sub": "user-123", "aud": "demo-web", "nonce": "n0nce-value-that-is-long"})
 CODE = "one-time-code-0123456789abcdef"

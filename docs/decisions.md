@@ -173,3 +173,33 @@ Read and write paths ("when is this table written, by what") would be an opt-in 
 - **Sample rows:** they break the no-values rule, and invented ones go stale.
 - **Architecture and sequence diagrams:** they belong to the architecture skill.
 - **A separate enum section:** enums go in declared types and field descriptions.
+
+## 2026-10-11: M4, a lean `check` and a narrative Claude writes beside the facts
+
+M4 turns a built trace into a narrated, checked artifact. The user skipped the lesson on the investigation step, so these choices were made without it.
+
+- **Claude writes `narrative.json`, never `trace.json`.** `authtrace narrate TRACE NARRATIVE` swaps the file in as the `narrative` section and lays the diagram out again. Claude never has to edit a 100 KB file of facts in place. Re-narrating replaces the previous narrative.
+- **Facts are hashed.** `build` stores `meta.facts_hash` over meta and every fact section. `check` recomputes it, as datamodels does with `observed_hash`. Narrative and layout aren't in the hash. A hand-written trace, such as the M1 fixture, has no hash, and `check` warns that it can't prove the facts are unedited.
+- **The narrative can add parts it can't observe.** The reference diagram shows a gateway class, middleware and endpoints that no capture sees. They're `narrative.nodes`, `edges` and `boundaries`, drawn with the facts, under new ids only. `narrative.names` gives a fact node a real name ("Keycloak" for `localhost-8080`). This keeps the CLAUDE.md invariant that Claude writes only the narrative, and it keeps provenance visible: every addition says how it's known.
+- **An addition claims no more than its evidence.** Its ceiling is `step_confidence` over what it cites: code lifts it to `declared`, observed exchanges to `observed`, and nothing leaves it `inferred`, which needs a `why`. A step's confidence stays derived. `check` rejects a stored one rather than trusting or clamping it.
+- **A fact edge is described, not redrawn.** `build`'s dashed `inferred` edges (an unseen JWKS fetch) stay inferred. The narrative captions them, and the step that explains them cites code, so the step is `declared`. A `refines` link that would upgrade a fact edge in place is an `# EXTEND:` idea, not built.
+- **`check` is one pass with errors and warnings:**
+  - a secret lint over the raw file text, narrative included. It's `lint.py`, which the reference-lint test now shares; it adds unmasked secret fields, query parameters and Bearer values to the JWT, one-time-claim and password patterns, and borrows viz's key patterns.
+  - `trace.problems()`, plus the types of each narrative field the viewer reads;
+  - the facts hash;
+  - the confidence rules;
+  - evidence paths: relative to the target, existing, `:line` inside the file, and never a secrets file. The root defaults to the folder holding `.authtrace/`. Libraries are cited through the target's `.venv/`.
+  - `git check-ignore` on the trace;
+  - redaction `raw` is refused.
+
+  It also lists what's still `inferred` or `unknown` with each reason, which the deliver step reports.
+- **`show`** prints a trace's ids, one line each, and any exchange as wire text, so Claude can cite ids and copy redacted wire text without reading the whole trace.
+- **Layout covers additions.** Role columns as before, with children stacked inside their parent's box, top-level nodes grouped by boundary, boxes sized for their captions, and boundaries drawn around what they hold. There are no pinned positions yet (`# EXTEND:`), so `narrate` replaces any hand-tuned layout.
+- **`build` keeps the capture log** (one redacted line per exchange) as a `logs` fact, so the page's run-log section isn't empty. The command's own output (pytest's log) is `# EXTEND:`; `run` would have to keep it redacted.
+- **Delivery** is a private artifact when the session has an Artifact tool and the user agreed, after asking again if redaction isn't `strict`. Otherwise it's the path to `flow.html`. Either way, the target's `git status` is shown.
+
+- **`narrate` runs `check`'s checks too,** except the git location, and writes nothing if they fail. A bad narrative never lands in the trace. `check` stays the final gate on the file as written.
+- **Lint hits name a JSON path.** Each value is linted where it sits, both alone and with its key. Then the whole text is linted for anything outside a value. Quotes may be escaped, since a wire block holds JSON inside a string.
+- **Acceptance was run by a fresh session** that had only the skill's text. It reused the strict capture: memes-mcp was down, and a new run would have called the paid API. It wrote three tours (one per distinct flow in the suite), 11 declared additions and an inspector, and passed `check` at the first attempt. Its critique drove the fixes: the output folder for a reused capture, tours per distinct flow, the field and confidence-order docs, labels on sibling edges, the token zone for children, narrate checking, and lint paths. Its narrative is the fixture `memes-agent-live/narrative.json`, minus one dev username.
+
+Deferred: pinned layout positions, `refines` for fact edges, structured `checks` in the narrative (steps carry `checks` pairs and `code` refs instead), the command's own log, and a `--share` mode that requires `strict`.

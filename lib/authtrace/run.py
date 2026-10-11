@@ -112,6 +112,7 @@ def run(cmd: list[str], out: Path, level: str = "dev") -> tuple[int, Path]:
 
 def write_private(path: Path, text: str) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)  # O_CREAT's mode only applies to a new file
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
 
@@ -122,15 +123,22 @@ def read_lines(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def summarize(path: Path) -> str:
-    """The run as a log: one line per exchange in time order, then processes and problems."""
-    lines = read_lines(path)
+def exchange_lines(lines: list[dict]) -> list[str]:
+    """One line per exchange, in time order: the capture as a log. `build` keeps it as a fact."""
     xs = sorted((r for r in lines if r["kind"] == "exchange"), key=lambda r: r["t0"])
-    out = [f"{len(xs)} exchange(s) → {path}"]
+    out = []
     for x in xs:
         status = x.get("status") or x.get("error", "no response")
         toks = f"  tokens {','.join(sorted({t['fp'] for t in x.get('tokens', [])}))}" if x.get("tokens") else ""
-        out.append(f"  [{x['t0']:7.3f}s] {x.get('proc', '?')[:12]:<12} {x['method']:<6} {x['url'][:90]} → {status}{toks}")
+        out.append(f"[{x['t0']:7.3f}s] {x.get('proc', '?')[:12]:<12} {x['method']:<6} {x['url'][:90]} → {status}{toks}")
+    return out
+
+
+def summarize(path: Path) -> str:
+    """The run as a log: one line per exchange in time order, then processes and problems."""
+    lines = read_lines(path)
+    xs = exchange_lines(lines)
+    out = [f"{len(xs)} exchange(s) → {path}"] + ["  " + x for x in xs]
     procs = [r for r in lines if r["kind"] == "process"]
     silent = [p for p in procs if not p["exchanges"]]
     if silent:

@@ -1,22 +1,18 @@
 """Keep raw tokens, secrets and one-time claim values out of docs/authtrace/ and authtrace's
-fixtures (PLAN.md §16)."""
+fixtures (PLAN.md §16). The patterns are authtrace's own lint, the one `check` runs on a trace."""
 
-import re
+import sys
 import unittest
 
-from _helpers import ROOT, viz
+from _helpers import ROOT
+
+sys.path.insert(0, str(ROOT / "lib"))
+
+from authtrace.lint import lint_text  # noqa: E402
 
 DOCS = ROOT / "docs" / "authtrace"
 FIXTURES = ROOT / "tests" / "fixtures" / "authtrace"
 TEXT_SUFFIXES = {".md", ".py", ".html", ".log", ".txt", ".jsonl", ".json"}
-
-RAW_JWT = re.compile(r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}")
-# One-time or binding claims must be masked inside decoded tokens. A masked value is short
-# ("abcd…(43)"), redacted, or a placeholder; anything 16+ characters of token alphabet is not.
-ONE_TIME_CLAIM = re.compile(r"""["']?(nonce|at_hash|c_hash|state_checker)["']?\s*[:=]\s*["']([\w-]{16,})["']""")
-PASSWORD_LITERAL = re.compile(r"""["']?password["']?\s*[:=]\s*["']([^"'*…\s]{3,})["']""", re.I)
-# The plan's prose names key prefixes (`sk-ant-`, `arc_`) as lint examples; a bare prefix isn't a key.
-BARE_PREFIX = re.compile(r"(sk-ant-|arc_)[`'\",.;:)…]*")
 
 
 def files():
@@ -29,25 +25,31 @@ class ReferenceLintTests(unittest.TestCase):
     def test_has_files(self):
         self.assertTrue(any(True for _ in files()))
 
-    def test_no_raw_jwts(self):
+    def test_nothing_secret(self):
         for path, text in files():
-            self.assertIsNone(RAW_JWT.search(text), f"{path.relative_to(ROOT)} contains a raw JWT")
+            self.assertEqual(lint_text(text), [], f"{path.relative_to(ROOT)}: (line, what)")
 
-    def test_no_secret_patterns(self):
-        for path, text in files():
-            for what, pattern in viz.SECRET_PATTERNS:
-                hits = [m.group() for m in pattern.finditer(text) if not BARE_PREFIX.fullmatch(m.group())]
-                self.assertEqual(hits, [], f"{path.relative_to(ROOT)} looks like it contains {what}")
 
-    def test_one_time_claims_are_masked(self):
-        for path, text in files():
-            m = ONE_TIME_CLAIM.search(text)
-            self.assertIsNone(m, f"{path.relative_to(ROOT)} has an unmasked {m and m.group(1)}")
+class LintPatternTests(unittest.TestCase):
+    def assertHit(self, text, what):
+        self.assertIn(what, [w for _, w in lint_text(text)], text)
 
-    def test_no_password_literals(self):
-        for path, text in files():
-            m = PASSWORD_LITERAL.search(text)
-            self.assertIsNone(m, f"{path.relative_to(ROOT)} has a password literal")
+    def test_catches_values(self):
+        self.assertHit("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhYmMifQ.c2lnbmF0dXJlLXZhbHVl", "a raw JWT")
+        self.assertHit('{"nonce": "GTrOvJabcdefghijklmn"}', "an unmasked one-time claim")
+        self.assertHit('{"password": "hunter22"}', "a password literal")
+        self.assertHit('{"refresh_token": "8f2d1c0b9a8e7f6d5c4b"}', "an unmasked secret field")
+        self.assertHit('"wire": "{\\"refresh_token\\": \\"8f2d1c0b9a8e7f6d5c4b\\"}"', "an unmasked secret field")
+        self.assertHit("/callback?state=x&code=192413aabbccddeeff00", "an unmasked secret in a URL")
+        self.assertHit("Authorization: Bearer 0123456789abcdefABCDEF", "an unmasked Bearer token")
+        self.assertHit("key sk-ant-api03-abcdefghijkl", "an Anthropic API key")
+
+    def test_masks_and_placeholders_pass(self):
+        for text in ('{"refresh_token": "<jwt fp:3bc2ee9e>"}', '{"password": "…"}', '{"nonce": "GTrO…(20)"}',
+                     "?code=192413%E2%80%A6%2898%29", "Authorization: Bearer <jwt fp:4b64c169>",
+                     'WWW-Authenticate: Bearer resource_metadata="http://127.0.0.1:8001/x"',
+                     "key prefixes such as `sk-ant-` and `arc_`", '{"token": "t1"}'):
+            self.assertEqual(lint_text(text), [], text)
 
 
 if __name__ == "__main__":

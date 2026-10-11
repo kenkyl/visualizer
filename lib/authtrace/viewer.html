@@ -259,8 +259,13 @@ const { trace: T, derived: D } = JSON.parse(document.getElementById("trace").tex
 // Claude's narrative if there is one; otherwise render's one-step-per-exchange tour (tour.py).
 const N = (T.narrative && (T.narrative.flows || []).length) ? T.narrative : D.narrative;
 const L = T.layout, CAP = N.captions || {}, GOALS = N.goals || {};
+// The diagram draws facts plus the narrative's additions (parts the capture can't see, declared
+// from code); trace.drawn() in Python is the same merge.
+const NAR = T.narrative || {};
+const DRAWN = Object.fromEntries(["boundaries", "nodes", "edges"].map((k) => [k, [...(T[k] || []), ...(NAR[k] || [])]]));
+const nameOf = (n) => (NAR.names || {})[n.id] || n.name;
 const byId = (list) => Object.fromEntries((list || []).map((x) => [x.id, x]));
-const NODES = byId(T.nodes), BOUNDS = byId(T.boundaries), STEPS = byId(N.steps), TOKENS = byId(T.tokens);
+const NODES = byId(DRAWN.nodes), BOUNDS = byId(DRAWN.boundaries), STEPS = byId(N.steps), TOKENS = byId(T.tokens);
 const FLOWS = byId(N.flows), FLOW_IDS = N.flows.map((f) => f.id);
 
 // ---------- text: trace strings are data, never markup ----------
@@ -283,45 +288,45 @@ function el(tag, attrs, parent, text) {
   if (parent) parent.append(e);
   return e;
 }
+// A node is in the token zone if its boundary is, or its parent is (a component inside a server).
 function inTokenZone(n) {
   for (let b = BOUNDS[n.boundary]; b; b = BOUNDS[b.parent]) if (b.token_zone) return true;
-  return false;
+  return n.parent && NODES[n.parent] ? inTokenZone(NODES[n.parent]) : false;
 }
-// EXTEND: role-column auto-layout (PLAN.md §11) for nodes and edges the trace doesn't pin.
 function drawDiagram() {
   const svg = $("#dia"), [W, H] = L.viewbox;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("aria-label", (N.header || {}).diagram_alt || `Topology of ${T.meta.target}. The highlighted path shows the current step.`);
-  for (const b of T.boundaries || []) {
+  for (const b of DRAWN.boundaries) {
     const [x, y, w, h] = L.boundaries[b.id];
     el("rect", { class: b.token_zone ? "zone" : "group", x, y, width: w, height: h, rx: b.token_zone ? 14 : 12 }, svg);
     const label = (b.token_zone ? `${b.name} · tokens live here` : b.name).toUpperCase();
     el("text", b.token_zone ? { class: "zl", x: x + w - 10, y: y + 20, "text-anchor": "end" } : { class: "zl", x: x + 12, y: y + 18 }, svg, label);
   }
-  for (const e of T.edges) {
+  for (const e of DRAWN.edges) {
     const g = el("g", { class: "edge" + (e.dashed || weak(e.confidence) ? " dash" : ""), id: `e-${e.id}` }, svg);
     el("path", { d: L.edges[e.id].path.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ") }, g);
     el("title", {}, g, `${e.label} (${e.confidence})`);
   }
-  for (const e of T.edges) {
+  for (const e of DRAWN.edges) {
     const at = L.edges[e.id].label;
     if (!at) continue;
     (CAP.edges?.[e.id] || [e.label]).forEach((t, i) => el("text", { class: "el", x: at[0], y: at[1] + 14 * i }, svg, t));
   }
-  for (const n of T.nodes) {
+  for (const n of DRAWN.nodes) {
     const [x, y, w, h] = L.nodes[n.id], nested = !!(n.parent || BOUNDS[n.boundary]?.parent);
     const nt = n.holds_tokens === false && !inTokenZone(n), dx = n.parent ? 10 : 12;
     const g = el("g", { class: `node${nested ? " sub" : ""}${nt ? " nt" : ""}`, id: `n-${n.id}` }, svg);
-    el("title", {}, g, `${n.name}: ${n.kind} (${n.confidence})`);
+    el("title", {}, g, `${nameOf(n)}: ${n.kind} (${n.confidence})`);
     el("rect", { class: "box", x, y, width: w, height: h, rx: !nested ? 10 : h < 50 ? 6 : 8 }, g);
-    const lines = CAP.nodes?.[n.id] || [n.kind.replace(/-/g, " ") + (n.confidence === "inferred" ? " (inferred)" : "")];
+    const lines = CAP.nodes?.[n.id] || (n.kind === "endpoint" ? [] : [n.kind.replace(/-/g, " ") + (n.confidence === "inferred" ? " (inferred)" : "")]);
     if (h <= 32) {
-      el("text", { class: "m", x: x + 10, y: y + 19, style: "white-space:pre" }, g, `${n.name.padEnd(7)} ${lines.join(" · ")}`);
+      el("text", { class: "m", x: x + 10, y: y + 19, style: "white-space:pre" }, g, lines.length ? `${nameOf(n).padEnd(7)} ${lines.join(" · ")}` : nameOf(n));
     } else if (h < 50) {
-      el("text", { class: "t", x: x + 10, y: y + 18, style: "font-size:12px" }, g, n.name);
+      el("text", { class: "t", x: x + 10, y: y + 18, style: "font-size:12px" }, g, nameOf(n));
       lines.forEach((t, i) => el("text", { class: "m", x: x + 10, y: y + 35 + 16 * i }, g, t));
     } else {
-      el("text", { class: "t", x: x + dx, y: y + 22 }, g, n.name);
+      el("text", { class: "t", x: x + dx, y: y + 22 }, g, nameOf(n));
       lines.forEach((t, i) => el("text", { class: "s", x: x + dx, y: y + 40 + 16 * i }, g, t));
       if (nt) {
         const by = y + 40 + 16 * (lines.length - 1) + 10, b = el("g", { class: "badge" }, g);
@@ -569,6 +574,11 @@ function drawLogs() {
   if (m && FLOWS[m[1]]) { flow = m[1]; idx = Math.min(+m[2] - 1, FLOWS[flow].steps.length - 1); }
   else { const f = store.get("flow"), i = +store.get("idx"); if (FLOWS[f]) { flow = f; if (i >= 0 && i < FLOWS[f].steps.length) idx = i; } }
   render();
+  // A step link in the prose ([text](#live-4)) changes the hash; render's own replaceState doesn't fire this.
+  addEventListener("hashchange", () => {
+    const h = /^#([\w-]+)-(\d+)$/.exec(location.hash);
+    if (h && FLOWS[h[1]]) { flow = h[1]; idx = Math.min(+h[2] - 1, FLOWS[flow].steps.length - 1); render(); $(".layout").scrollIntoView(); }
+  });
 })();
 </script>
 </body>

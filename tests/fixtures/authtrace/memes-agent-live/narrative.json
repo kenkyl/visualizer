@@ -1,0 +1,1595 @@
+{
+ "header": {
+  "page_title": "memes-agent live run",
+  "eyebrow": "memes-agent · authtrace · after lessons 5 and 6a",
+  "title": "The live test run, hop by hop",
+  "intro": "`uv run pytest -m live` ran four tests on 2026-10-11 at 00:56, and authtrace captured every HTTP call the pytest process made (strict redaction). Three tours replay them: **One meme** follows the end-to-end test through Keycloak, memes-mcp and Claude; **No permission** shows a token with the right audience but no `memes:read`; **Background** shows an offline grant being redeemed, rotated, revoked and refused. memes-mcp was already running, so its side (token validation, the JWKS fetch) is explained from its code, not seen on the wire. The browser login isn't in this run.",
+  "chip": "4 tests · exit 0 · 11.7 s",
+  "diagram_alt": "pytest, playing the memes-dev client, talks to Keycloak (authorization server), memes-mcp (resource server) and the Claude API. Inside pytest sit the agent loop, MCPToolGateway, ClaudeLLM, the worker and GrantStore; inside memes-mcp sit the auth middleware, the session manager and the tools. The JWKS hop from memes-mcp to Keycloak is dashed because it wasn't captured."
+ },
+ "goals": {
+  "1": [
+   "OAuth roles",
+   "Map resource owner, client, authorization server and resource server onto running code."
+  ],
+  "2": [
+   "Tokens and claims",
+   "What's inside each token, and who checks iss, aud, exp, scope and sub."
+  ],
+  "3": [
+   "MCP resource server",
+   "An MCP server built with Arcade's framework, protected as a resource server."
+  ],
+  "4": [
+   "Agent loop",
+   "The hand-written loop: model, tools, repeat, and why the token never reaches the model."
+  ],
+  "5": [
+   "Audience vs scope",
+   "Which API a token is for (aud) versus what it may do there (scope), checked per tool."
+  ],
+  "6": [
+   "Refresh and offline grants",
+   "Refresh tokens, offline grants for the worker, rotation, revocation and re-consent."
+  ]
+ },
+ "names": {
+  "pytest": "pytest · test_live.py",
+  "localhost-8080": "Keycloak",
+  "127-0-0-1-8001": "memes-mcp",
+  "api-anthropic-com": "Claude API"
+ },
+ "captions": {
+  "nodes": {
+   "pytest": [
+    "plays the memes-dev client",
+    "and memes-worker"
+   ],
+   "localhost-8080": [
+    "authorization server",
+    "realm memes · :8080"
+   ],
+   "127-0-0-1-8001": [
+    "resource server · /mcp",
+    "arcade-mcp-server 1.32"
+   ],
+   "api-anthropic-com": [
+    "Messages API",
+    "never sees a token"
+   ],
+   "gateway": [
+    "holds the token",
+    "adds Bearer to every call"
+   ],
+   "mw": [
+    "sig · iss · aud · exp",
+    "on every request"
+   ],
+   "tools": [
+    "require_scopes(memes:read)",
+    "first line of each tool"
+   ],
+   "grants": [
+    "Fernet-encrypted",
+    "offline token by sub"
+   ]
+  },
+  "edges": {
+   "127-0-0-1-8001--localhost-8080--keys": [
+    "JWKS · cached 1 h",
+    "not captured"
+   ],
+   "pytest--127-0-0-1-8001": [
+    "JSON-RPC + Bearer"
+   ],
+   "pytest--localhost-8080": [
+    "token · revoke"
+   ]
+  }
+ },
+ "nodes": [
+  {
+   "id": "loop",
+   "name": "run_agent",
+   "kind": "agent-module",
+   "parent": "pytest",
+   "holds_tokens": false,
+   "evidence": [
+    "src/memes_agent/loop.py:30-76"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "gateway",
+   "name": "MCPToolGateway",
+   "kind": "agent-module",
+   "parent": "pytest",
+   "holds_tokens": true,
+   "evidence": [
+    "src/memes_agent/tools.py:29-48"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "llm",
+   "name": "ClaudeLLM",
+   "kind": "agent-module",
+   "parent": "pytest",
+   "holds_tokens": false,
+   "evidence": [
+    "src/memes_agent/llm.py:26-51"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "worker",
+   "name": "run_once (worker)",
+   "kind": "agent-module",
+   "parent": "pytest",
+   "holds_tokens": true,
+   "evidence": [
+    "src/memes_agent/worker.py:29-81"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "grants",
+   "name": "GrantStore",
+   "kind": "datastore",
+   "parent": "pytest",
+   "holds_tokens": true,
+   "evidence": [
+    "src/memes_agent/grants.py:17-68",
+    "tests/test_live.py:108-112"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "kc-token",
+   "name": "/protocol/openid-connect/token",
+   "kind": "endpoint",
+   "parent": "localhost-8080",
+   "holds_tokens": false,
+   "evidence": [
+    "tests/test_live.py:27-28"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "kc-revoke",
+   "name": "/protocol/openid-connect/revoke",
+   "kind": "endpoint",
+   "parent": "localhost-8080",
+   "holds_tokens": false,
+   "evidence": [
+    "tests/test_live.py:148-151"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "kc-certs",
+   "name": "/protocol/openid-connect/certs",
+   "kind": "endpoint",
+   "parent": "localhost-8080",
+   "holds_tokens": false,
+   "evidence": [
+    "servers/memes_mcp/src/memes_mcp/server.py:38"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "mw",
+   "name": "ResourceServerMiddleware",
+   "kind": "component",
+   "parent": "127-0-0-1-8001",
+   "holds_tokens": false,
+   "evidence": [
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:103-123",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/worker.py:278-285"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "sess",
+   "name": "HTTP session manager",
+   "kind": "component",
+   "parent": "127-0-0-1-8001",
+   "holds_tokens": false,
+   "evidence": [
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/transports/http_session_manager.py:166-210"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "tools",
+   "name": "make_meme · caption_meme",
+   "kind": "component",
+   "parent": "127-0-0-1-8001",
+   "holds_tokens": false,
+   "evidence": [
+    "servers/memes_mcp/src/memes_mcp/server.py:55-96",
+    "servers/memes_mcp/src/memes_mcp/scopes.py:19-27"
+   ],
+   "confidence": "declared"
+  }
+ ],
+ "edges": [
+  {
+   "id": "loop-llm",
+   "from": "loop",
+   "to": "llm",
+   "label": "asks",
+   "channel": "in-process",
+   "dashed": false,
+   "evidence": [
+    "src/memes_agent/loop.py:42"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "loop-gateway",
+   "from": "loop",
+   "to": "gateway",
+   "label": "calls",
+   "channel": "in-process",
+   "dashed": false,
+   "evidence": [
+    "src/memes_agent/loop.py:53"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "worker-grants",
+   "from": "worker",
+   "to": "grants",
+   "label": "grant",
+   "channel": "in-process",
+   "dashed": false,
+   "evidence": [
+    "src/memes_agent/worker.py:46",
+    "src/memes_agent/worker.py:59",
+    "src/memes_agent/worker.py:67-68"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "worker-loop",
+   "from": "worker",
+   "to": "loop",
+   "label": "runs",
+   "channel": "in-process",
+   "dashed": false,
+   "evidence": [
+    "src/memes_agent/worker.py:71-73"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "mw-sess",
+   "from": "mw",
+   "to": "sess",
+   "label": "owner",
+   "channel": "in-process",
+   "dashed": false,
+   "evidence": [
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:104-108"
+   ],
+   "confidence": "declared"
+  },
+  {
+   "id": "sess-tools",
+   "from": "sess",
+   "to": "tools",
+   "label": "sub",
+   "channel": "in-process",
+   "dashed": false,
+   "evidence": [
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1182-1183"
+   ],
+   "confidence": "declared"
+  }
+ ],
+ "inspector": {
+  "token": "t1",
+  "eyebrow": "Learning goals 2 and 5",
+  "title": "Token inspector: the access token from test 1",
+  "intro": "`t1`, decoded. Reading a JWT needs no key; trusting one needs the signature check in the One meme tour, step 5. Identity claims are hashed because the capture is `strict`. The right-hand columns say which code checks each claim, from memes-mcp's installed arcade-mcp-server 1.32.",
+  "claims": [
+   {
+    "claim": "header.alg",
+    "checked_by": "memes-mcp validator (`algorithm=\"RS256\"`)",
+    "why": "Must equal the configured algorithm before any key is used, which blocks algorithm-confusion tricks. The refresh token is HS512, so it could never pass here."
+   },
+   {
+    "claim": "header.kid",
+    "checked_by": "memes-mcp validator",
+    "why": "Picks the public key in Keycloak's JWKS. An unknown `kid` is a 401 until the 1-hour JWKS cache refreshes, which is why memes-mcp needs a restart after a realm re-import."
+   },
+   {
+    "claim": "iss",
+    "checked_by": "memes-mcp validator (`ISSUER`)",
+    "why": "Exact string match with `http://localhost:8080/realms/memes`. A token from another realm or IdP fails."
+   },
+   {
+    "claim": "aud",
+    "checked_by": "memes-mcp validator (`expected_audiences`)",
+    "why": "Must contain `CANONICAL_URL`. The `memes-mcp` default client scope's audience mapper puts it there, for every token memes-dev and memes-web get."
+   },
+   {
+    "claim": "exp",
+    "checked_by": "memes-mcp validator (leeway 0)",
+    "why": "900 s after `iat`. Validation is local, so `exp` is the only revocation memes-mcp ever sees."
+   },
+   {
+    "claim": "iat",
+    "checked_by": "memes-mcp validator",
+    "why": "Rejected if it's in the future (clock skew, leeway 0)."
+   },
+   {
+    "claim": "sub",
+    "checked_by": "memes-mcp → `context.user_id`; the app's profile and grant key",
+    "why": "Required (no `sub`, no entry). The stable identity: never the email or username."
+   },
+   {
+    "claim": "scope",
+    "checked_by": "each tool's `require_scopes(context, \"memes:read\")`",
+    "why": "The middleware only parses it; the tools enforce it. Without `memes:read` the session still opens, and every tool refuses (the No permission tour)."
+   },
+   {
+    "claim": "azp",
+    "checked_by": "nobody (recorded as `client_id`)",
+    "why": "Which client asked: `memes-dev` here, `memes-web` in the browser. A separate worker client would make background calls visible in it."
+   },
+   {
+    "claim": "typ",
+    "checked_by": "nobody",
+    "why": "Keycloak's own marker (`Bearer`, `Refresh`, `Offline`, `ID`). memes-mcp relies on `alg` and `aud` instead to keep other token types out."
+   },
+   {
+    "claim": "sid",
+    "checked_by": "nobody at memes-mcp",
+    "why": "Keycloak's session id. It changes per password grant, and stays the same across the offline refresh in the Background tour."
+   },
+   {
+    "claim": "email",
+    "checked_by": "nobody (copied into the resource owner, unused)",
+    "why": "Display only. Emails can change; `sub` can't."
+   }
+  ]
+ },
+ "logs_note": "This page was built on 2026-10-11 from the capture in `.authtrace/run-20261011-005646/`, unchanged. Only the pytest process ran under capture; memes-mcp and Keycloak were already running.",
+ "steps": [
+  {
+   "id": "meme-1",
+   "title": "Get tokens the dev way: the password grant",
+   "time": "+1.806 s",
+   "exchanges": [
+    "x1"
+   ],
+   "tokens": [
+    "t1",
+    "t2",
+    "t3"
+   ],
+   "nodes": [
+    "pytest",
+    "localhost-8080",
+    "kc-token"
+   ],
+   "segs": [
+    [
+     "pytest--localhost-8080",
+     1,
+     "user + password",
+     "dat"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "access · refresh · ID",
+     "tok"
+    ]
+   ],
+   "what": "`dev_token()` posts the **password grant** to Keycloak as the public `memes-dev` client. It asks for `openid memes:read`. Keycloak answers with three tokens and adds `email profile`, the client's default scopes. It also applies the default `memes-mcp` scope, whose audience mapper writes `aud=http://127.0.0.1:8001/mcp`. That scope doesn't show in `scope` because it is configured with `include.in.token.scope: false`.",
+   "wire": "→ POST http://localhost:8080/realms/memes/protocol/openid-connect/token\n  {\"grant_type\": \"password\", \"client_id\": \"memes-dev\", \"username\": \"…\", \"password\": \"…\",\n   \"scope\": \"openid memes:read\"}\n← 200\n  {\"access_token\": \"<jwt fp:4b64c169>\", \"expires_in\": 900, \"refresh_expires_in\": 1800,\n   \"refresh_token\": \"<jwt fp:d33f962b>\", \"token_type\": \"Bearer\", \"id_token\": \"<jwt fp:c6ce940b>\",\n   \"scope\": \"openid memes:read email profile\"}",
+   "checks": [
+    [
+     "Keycloak",
+     "password correct; memes-dev has `directAccessGrantsEnabled`"
+    ],
+    [
+     "Keycloak",
+     "`memes:read` is an optional scope on memes-dev → granted on request"
+    ]
+   ],
+   "roles": "Resource owner: the realm's dev test user · Client: `memes-dev`, played by pytest · Authorization server: Keycloak realm `memes`",
+   "note": "Finding **OAUTH-ROPC** (x1, x15, x24, x37) is by design: `memes-dev` exists so tests and scripts can get a token without a browser, and the decision log marks it dev only. `memes-web`, the real client, has the password grant switched off and uses the authorization code flow with PKCE.",
+   "goals": [
+    1,
+    2,
+    5
+   ],
+   "code": [
+    "tests/test_live.py:25-38",
+    "infra/keycloak/memes-realm.json:230-246",
+    "infra/keycloak/memes-realm.json:165-186",
+    "infra/keycloak/memes-realm.json:207",
+    "docs/decisions.md:11"
+   ],
+   "quiz": [
+    "Nobody asked for the `memes-mcp` scope. Why does `aud` name the MCP server?",
+    "`memes-mcp` is a *default* client scope on memes-dev, so Keycloak always applies it, and its audience mapper adds the MCP server's canonical URL to `aud`. `include.in.token.scope: false` hides it from `scope`."
+   ]
+  },
+  {
+   "id": "meme-2",
+   "title": "Three tokens, three audiences; only one leaves",
+   "time": "+1.806 s",
+   "tokens": [
+    "t1",
+    "t2",
+    "t3"
+   ],
+   "nodes": [
+    "pytest",
+    "gateway"
+   ],
+   "what": "The access token `t1` is for memes-mcp. The refresh token `t2` is for Keycloak itself, and the ID token `t3` is for the client. The test keeps only `t1` and hands it to `MCPToolGateway`. The capture confirms that no refresh token ever reached memes-mcp (rule **REFRESH-TO-RS** passed).",
+   "wire": "t1  access   RS256  typ Bearer   aud http://127.0.0.1:8001/mcp           900 s\nt2  refresh  HS512  typ Refresh  aud http://localhost:8080/realms/memes  1800 s\nt3  id       RS256  typ ID       aud memes-dev                           900 s",
+   "checks": [
+    [
+     "Nobody yet",
+     "reading a JWT isn't trusting it; that happens in step 5"
+    ]
+   ],
+   "inv": "A user's identity is the Keycloak `sub`, never an email or a username.",
+   "goals": [
+    2
+   ],
+   "code": [
+    "tests/test_live.py:38",
+    "tests/test_live.py:46",
+    "CLAUDE.md:15-16"
+   ],
+   "quiz": [
+    "Could someone replay the refresh token `t2` at memes-mcp?",
+    "No. It's HS512 (a secret only Keycloak holds), memes-mcp accepts only RS256 keys from the JWKS, and its `aud` is the realm, not the MCP URL. The ID token `t3` fails the `aud` check too."
+   ]
+  },
+  {
+   "id": "meme-3",
+   "title": "Open an MCP session: the 2026 probe gets a 400",
+   "time": "+1.863 s",
+   "exchanges": [
+    "x2"
+   ],
+   "tokens": [
+    "t1"
+   ],
+   "nodes": [
+    "pytest",
+    "gateway",
+    "127-0-0-1-8001",
+    "mw",
+    "sess"
+   ],
+   "segs": [
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "server/discover + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "400",
+     "err"
+    ]
+   ],
+   "what": "`MCPToolGateway` builds one HTTP client with `Authorization: Bearer …` as a default header, so *every* MCP request carries `t1`. The `mcp` 2.2 client defaults to `mode=\"auto\"`: it first probes `server/discover` at protocol `2026-07-28`. On memes-mcp, `ResourceServerMiddleware` wraps the whole `/mcp` mount and validates the token first. Only then does the session manager compare the `MCP-Protocol-Version` header with its supported list (`2025-06-18`, `2025-11-25`) and answer 400.",
+   "wire": "→ POST http://127.0.0.1:8001/mcp\n  Authorization: Bearer <jwt fp:4b64c169>\n  {\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"server/discover\", ...}\n← 400\n  {\"jsonrpc\": \"2.0\", \"error\": {\"code\": -32600,\n   \"message\": \"Bad Request: Unsupported protocol version: 2026-07-28\"}}",
+   "checks": [
+    [
+     "ResourceServerMiddleware",
+     "token valid → pass through"
+    ],
+    [
+     "Session manager",
+     "protocol 2026-07-28 not supported → 400"
+    ]
+   ],
+   "note": "Finding **MCP-VERSION-FALLBACK** (x2, x16, x26) is expected: the decision log says a single 400 per connection is the price of the forward-compatible client. It's version negotiation, not an auth failure. A rejected token gets a **401** with `WWW-Authenticate` instead.",
+   "roles": "Client: pytest via `MCPToolGateway` · Resource server: memes-mcp",
+   "goals": [
+    3
+   ],
+   "code": [
+    "src/memes_agent/tools.py:38-45",
+    ".venv/lib/python3.13/site-packages/mcp/client/client.py:330-333",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/worker.py:278-285",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:103-119",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/transports/http_session_manager.py:204-210",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/types.py:67",
+    "docs/decisions.md:19"
+   ],
+   "quiz": [
+    "How do we know `t1` was valid, even though this request failed?",
+    "The middleware wraps the whole `/mcp` app. A bad token would have stopped there with a 401 and never reached the protocol-version check that produced this 400."
+   ]
+  },
+  {
+   "id": "meme-4",
+   "title": "Fall back to 2025-11-25: initialize, stream, tools/list",
+   "time": "+1.866 s",
+   "exchanges": [
+    "x3",
+    "x4",
+    "x5",
+    "x6"
+   ],
+   "tokens": [
+    "t1"
+   ],
+   "nodes": [
+    "pytest",
+    "gateway",
+    "127-0-0-1-8001",
+    "mw",
+    "sess"
+   ],
+   "segs": [
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "initialize + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "2025-11-25",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "tools/list + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "2 tools",
+     "dat"
+    ]
+   ],
+   "what": "Any error on the probe makes the client fall back to the classic `initialize` handshake, which is exempt from the version-header check. The server agrees on `2025-11-25` and names itself `Memes 0.1.0`. `notifications/initialized` (202) and a `GET` event stream complete the session, and `tools/list` returns both tools in alphabetical order, which is why the loop picks tools by name. The middleware re-validates `t1` on each of these requests.",
+   "wire": "→ POST /mcp  {\"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2025-11-25\", ...}}\n← 200        {\"result\": {\"protocolVersion\": \"2025-11-25\", \"serverInfo\": {\"name\": \"Memes\", \"version\": \"0.1.0\"}}}\n→ POST /mcp  {\"method\": \"notifications/initialized\"}            ← 202\n→ GET  /mcp                                                         ← 200\n→ POST /mcp  {\"method\": \"tools/list\"}\n← 200        {\"tools\": [{\"name\": \"Memes_CaptionMeme\"}, {\"name\": \"Memes_MakeMeme\"}]}",
+   "checks": [
+    [
+     "ResourceServerMiddleware",
+     "sig · iss · aud · exp, on every request"
+    ],
+    [
+     "Session manager",
+     "initialize negotiates the version; later requests must match it"
+    ]
+   ],
+   "goals": [
+    3
+   ],
+   "code": [
+    ".venv/lib/python3.13/site-packages/mcp/client/_probe.py:1-13",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/transports/http_session_manager.py:186-188",
+    "servers/memes_mcp/src/memes_mcp/server.py:47",
+    "src/memes_agent/loop.py:9-11",
+    "src/memes_agent/tools.py:50-58"
+   ],
+   "quiz": [
+    "`tools/list` showed both tools. Does that mean this token may call them?",
+    "No. Listing needs only a valid token. Each tool checks `memes:read` itself, as the No permission tour shows with a token that lists both tools and then gets refused by each."
+   ]
+  },
+  {
+   "id": "meme-5",
+   "title": "Validate the token: JWKS signature, iss, aud, exp",
+   "time": "every request; JWKS cached 1 h",
+   "tokens": [
+    "t1"
+   ],
+   "nodes": [
+    "127-0-0-1-8001",
+    "mw",
+    "localhost-8080",
+    "kc-certs"
+   ],
+   "segs": [
+    [
+     "127-0-0-1-8001--localhost-8080--keys",
+     1,
+     "GET /certs (if cache is stale)",
+     "dat"
+    ],
+    [
+     "127-0-0-1-8001--localhost-8080--keys",
+     -1,
+     "JWKS",
+     "dat"
+    ]
+   ],
+   "what": "memes-mcp configures one trusted issuer: the Keycloak realm, its `/certs` URL, `RS256`, and `expected_audiences=[CANONICAL_URL]`. For every request, the validator takes the cached JWKS (refetched after 3600 s), finds the key whose `kid` matches and whose `alg` is RS256, and verifies the signature. Then it checks `exp`, `iat` and `nbf` with zero leeway, `iss` by exact string, `aud` against the canonical URL, and that `sub` exists. It parses `scope` into `granted_scopes` but enforces nothing there. The result, a *resource owner*, rides along to the tools.",
+   "wire": "t1 header  alg RS256  kid K4RimLbP…\niss == http://localhost:8080/realms/memes   ✓\naud ∋  http://127.0.0.1:8001/mcp            ✓\nexp    iat + 900 s, still in the future     ✓\nsub    present → context.user_id",
+   "checks": [
+    [
+     "Signature",
+     "kid → JWKS key, RS256 only"
+    ],
+    [
+     "iss",
+     "== ISSUER"
+    ],
+    [
+     "aud",
+     "∋ CANONICAL_URL"
+    ],
+    [
+     "exp · iat · nbf",
+     "leeway 0"
+    ],
+    [
+     "sub",
+     "must exist"
+    ],
+    [
+     "scope",
+     "parsed, not enforced here"
+    ]
+   ],
+   "inv": "The MCP server trusts only JWTs it has validated (signature, `iss`, `aud`, `exp`).",
+   "note": "The JWKS fetch itself isn't in this capture: memes-mcp was started before the run and wasn't wrapped, so the dashed edge stays *inferred*. Running `uv run memes-mcp` under `authtrace run` would show it (once per hour at most).",
+   "roles": "Resource server: memes-mcp, validating locally · Authorization server: Keycloak, only as the JWKS publisher",
+   "goals": [
+    2,
+    3
+   ],
+   "code": [
+    "servers/memes_mcp/src/memes_mcp/server.py:32-45",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/auth.py:40",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/auth.py:205-216",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:165-188",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:222-249",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:272-279",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:283-327",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:329-344",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/validators/jwks.py:431-446",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/base.py:307-310",
+    "CLAUDE.md:19-20"
+   ],
+   "quiz": [
+    "An admin ends this user's Keycloak session right now. Does `t1` stop working at memes-mcp?",
+    "No. Validation is local (cached keys, no call to Keycloak), so `t1` keeps working until `exp`, 15 minutes after it was issued. Short access-token lifetimes are what keep that window small."
+   ]
+  },
+  {
+   "id": "meme-6",
+   "title": "Claude picks a tool: only words and schemas cross",
+   "time": "+1.878 s",
+   "exchanges": [
+    "x7"
+   ],
+   "nodes": [
+    "pytest",
+    "loop",
+    "llm",
+    "api-anthropic-com"
+   ],
+   "segs": [
+    [
+     "loop-llm",
+     1,
+     "messages + schemas",
+     "dat"
+    ],
+    [
+     "pytest--api-anthropic-com",
+     1,
+     "words + tool schemas",
+     "dat"
+    ],
+    [
+     "pytest--api-anthropic-com",
+     -1,
+     "tool_use Memes_MakeMeme",
+     "dat"
+    ]
+   ],
+   "what": "`run_agent` puts the user's words in the first message as data, fetches the tool schemas, and calls `ClaudeLLM`, which sends only `model`, `system`, `tools` and `messages`. Claude answers with a `tool_use` block for `Memes_MakeMeme`. The capture scanned every model request for known token values; rule **TOKEN-LEAK-LLM** passed for all seven.",
+   "wire": "→ POST https://api.anthropic.com/v1/messages\n  {\"model\": \"claude-sonnet-5-5\", \"system\": \"…\", \"messages\": \"…\",\n   \"tools\": [{\"name\": \"Memes_CaptionMeme\", ...}, {\"name\": \"Memes_MakeMeme\", ...}]}\n← 200\n  {\"content\": [{\"type\": \"tool_use\", \"name\": \"Memes_MakeMeme\", \"input\": \"…\"}], \"stop_reason\": \"tool_use\"}",
+   "checks": [
+    [
+     "authtrace rule TOKEN-LEAK-LLM",
+     "no known token in the request → passed"
+    ],
+    [
+     "Anthropic API",
+     "its own API key, not an OAuth token"
+    ]
+   ],
+   "inv": "Tokens never reach the LLM. `MCPToolGateway` attaches them; the model sees names and arguments only.",
+   "roles": "Claude is not an OAuth party: it never holds the user's token and can't choose whose token is used.",
+   "goals": [
+    4
+   ],
+   "code": [
+    "src/memes_agent/loop.py:33-42",
+    "src/memes_agent/llm.py:30-51",
+    "CLAUDE.md:17-18"
+   ],
+   "quiz": [
+    "Claude asked for `Memes_MakeMeme`. Could it make that call run as a different user?",
+    "No. The token was fixed when the gateway was built, and the model only supplies a tool name and arguments. Identity comes from the token's `sub`, never from arguments."
+   ]
+  },
+  {
+   "id": "meme-7",
+   "title": "Call Memes_MakeMeme as the user",
+   "time": "+2.853 s",
+   "exchanges": [
+    "x8"
+   ],
+   "tokens": [
+    "t1"
+   ],
+   "nodes": [
+    "pytest",
+    "loop",
+    "gateway",
+    "127-0-0-1-8001",
+    "mw",
+    "sess",
+    "tools"
+   ],
+   "segs": [
+    [
+     "loop-gateway",
+     1,
+     "call(Memes_MakeMeme)",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "tools/call + Bearer",
+     "tok"
+    ],
+    [
+     "mw-sess",
+     1,
+     "resource owner",
+     "dat"
+    ],
+    [
+     "sess-tools",
+     1,
+     "user_id = sub",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "meme",
+     "dat"
+    ]
+   ],
+   "what": "The loop calls `tools.call`, and the gateway sends `tools/call` with the Bearer header. After the middleware validates `t1` again, arcade sets `context.user_id` from the token's `sub`. The first line of `make_meme` is `require_scopes(context, \"memes:read\")`, which reads the validated scopes (through a private attribute, kept in `scopes.py`). `t1` has `memes:read`, so the tool picks a meme and returns it as `structuredContent`, which the loop keeps for the UI.",
+   "wire": "→ POST http://127.0.0.1:8001/mcp\n  Authorization: Bearer <jwt fp:4b64c169>\n  {\"method\": \"tools/call\", \"params\": {\"name\": \"Memes_MakeMeme\", \"arguments\": \"…\"}}\n← 200\n  {\"result\": {\"content\": [...], \"structuredContent\": \"…\", \"isError\": false}}",
+   "checks": [
+    [
+     "ResourceServerMiddleware",
+     "sig · iss · aud · exp"
+    ],
+    [
+     "arcade server",
+     "context.user_id = sub"
+    ],
+    [
+     "make_meme → require_scopes",
+     "memes:read ∈ scope ✓"
+    ]
+   ],
+   "inv": "Every tool checks its own scopes with `require_scopes` (fail closed).",
+   "roles": "Resource owner: the user behind `sub` · Client: pytest via the gateway · Resource server: memes-mcp",
+   "goals": [
+    1,
+    3,
+    5
+   ],
+   "code": [
+    "src/memes_agent/loop.py:53-58",
+    "src/memes_agent/tools.py:60-67",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1182-1183",
+    "servers/memes_mcp/src/memes_mcp/server.py:55-68",
+    "servers/memes_mcp/src/memes_mcp/scopes.py:12-27"
+   ],
+   "quiz": [
+    "Where does memes-mcp get the user's identity: the tool arguments or the token?",
+    "The token. `sub` becomes `context.user_id`. The arguments carry only hints, which are data, never identity."
+   ]
+  },
+  {
+   "id": "meme-8",
+   "title": "A caption is rejected, and Claude rewrites it",
+   "time": "+2.886 s",
+   "exchanges": [
+    "x9",
+    "x10",
+    "x11",
+    "x12"
+   ],
+   "tokens": [
+    "t1"
+   ],
+   "nodes": [
+    "pytest",
+    "loop",
+    "gateway",
+    "llm",
+    "api-anthropic-com",
+    "127-0-0-1-8001",
+    "mw",
+    "tools"
+   ],
+   "segs": [
+    [
+     "pytest--api-anthropic-com",
+     -1,
+     "tool_use Memes_CaptionMeme",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "tools/call + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "isError: true",
+     "err"
+    ],
+    [
+     "pytest--api-anthropic-com",
+     1,
+     "tool_result is_error",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "tools/call + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "approved",
+     "dat"
+    ]
+   ],
+   "what": "Claude submits a caption (x9 → x10), and memes-mcp answers HTTP 200 with `isError: true` and arcade's `_meta` error block. The scope check passed (`t1` has `memes:read`), so this is `caption_meme` raising a `RetryableToolError`: either an unknown `meme_id` or a caption the PG guard rejected. The strict capture dropped the message, so which one is *unknown*. The gateway turns it into an `is_error` result, the loop hands it back to Claude, and the rewrite (x11 → x12) is approved. There's no retry code anywhere.",
+   "wire": "→ tools/call Memes_CaptionMeme    ← 200 {\"result\": {\"_meta\": \"…\", \"content\": [...], \"isError\": true}}\n→ tools/call Memes_CaptionMeme    ← 200 {\"result\": {\"content\": [...], \"structuredContent\": \"…\", \"isError\": false}}",
+   "checks": [
+    [
+     "caption_meme → require_scopes",
+     "memes:read ✓"
+    ],
+    [
+     "caption_meme guard",
+     "rejected, then approved"
+    ],
+    [
+     "Agent loop",
+     "is_error goes back to Claude as data"
+    ]
+   ],
+   "inv": "Errors are data: tool failures go back to the model as `is_error` results.",
+   "note": "Run the test with `--redaction dev` to keep the rejection text and see which check fired.",
+   "goals": [
+    3,
+    4
+   ],
+   "code": [
+    "servers/memes_mcp/src/memes_mcp/server.py:79-96",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1593-1650",
+    "src/memes_agent/tools.py:66-67",
+    "src/memes_agent/loop.py:61-69"
+   ],
+   "quiz": [
+    "Is x10 an authorization failure?",
+    "No. Auth failures look different: a 401 from the middleware, or an `insufficient_scope` error from `require_scopes`, and `t1` passes both. This is the caption gate, reported as data for the model."
+   ]
+  },
+  {
+   "id": "meme-9",
+   "title": "Claude finishes, and the MCP session closes",
+   "time": "+5.776 s",
+   "exchanges": [
+    "x13",
+    "x14"
+   ],
+   "tokens": [
+    "t1"
+   ],
+   "nodes": [
+    "pytest",
+    "loop",
+    "gateway",
+    "api-anthropic-com",
+    "127-0-0-1-8001",
+    "mw",
+    "sess"
+   ],
+   "segs": [
+    [
+     "pytest--api-anthropic-com",
+     -1,
+     "end_turn",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "DELETE + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "200",
+     "dat"
+    ]
+   ],
+   "what": "Claude replies with text and `end_turn`, so the loop stops. Leaving `async with MCPToolGateway` closes the client, which sends `DELETE /mcp` to end the session. That request is validated too. Nothing tells Keycloak: `t1` isn't revoked, it just stops being used.",
+   "wire": "→ POST https://api.anthropic.com/v1/messages   ← 200 {\"stop_reason\": \"end_turn\"}\n→ DELETE http://127.0.0.1:8001/mcp\n  Authorization: Bearer <jwt fp:4b64c169>\n← 200",
+   "checks": [
+    [
+     "ResourceServerMiddleware",
+     "even DELETE needs a valid token"
+    ]
+   ],
+   "goals": [
+    3,
+    4
+   ],
+   "code": [
+    "src/memes_agent/loop.py:45-46",
+    "src/memes_agent/tools.py:47-48",
+    "tests/test_live.py:46-50"
+   ],
+   "quiz": [
+    "After the DELETE, could `t1` still open a new session?",
+    "Yes, until its `exp` (900 s after issue). DELETE ends the MCP session, not the token, and memes-mcp validates locally, so only `exp` limits it."
+   ]
+  },
+  {
+   "id": "noperm-1",
+   "title": "Ask for only openid: right audience, no permission",
+   "time": "+6.819 s",
+   "exchanges": [
+    "x15"
+   ],
+   "tokens": [
+    "t4"
+   ],
+   "nodes": [
+    "pytest",
+    "localhost-8080",
+    "kc-token"
+   ],
+   "segs": [
+    [
+     "pytest--localhost-8080",
+     1,
+     "password grant, scope openid",
+     "dat"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "t4: no memes:read",
+     "tok"
+    ]
+   ],
+   "what": "The scope test asks for `scope=openid` only. `memes:read` is *optional* on memes-dev, so it's left out; `memes-mcp` is *default*, so `aud` still names the MCP server. Since the 2026-10-04 split, \"which API\" (audience) and \"what may it do\" (permission) are separate scopes.",
+   "wire": "→ POST …/openid-connect/token  {\"grant_type\": \"password\", \"client_id\": \"memes-dev\", \"scope\": \"openid\"}\n← 200  {\"access_token\": \"<jwt fp:f0b48225>\", \"scope\": \"openid email profile\"}\n\nt4  aud http://127.0.0.1:8001/mcp   scope openid email profile",
+   "checks": [
+    [
+     "Keycloak",
+     "default scopes applied; optional memes:read not requested"
+    ]
+   ],
+   "goals": [
+    2,
+    5
+   ],
+   "code": [
+    "tests/test_live.py:53-59",
+    "infra/keycloak/memes-realm.json:237-246",
+    "docs/decisions.md:20"
+   ],
+   "quiz": [
+    "Before the split, removing `memes:read` gave a 401. Why?",
+    "The audience mapper lived on `memes:read`, so a token without it also lost `aud`, and the middleware rejected it. Now the audience comes from the default `memes-mcp` scope and the permission is separate."
+   ]
+  },
+  {
+   "id": "noperm-2",
+   "title": "The door opens: session and tools/list succeed",
+   "time": "+6.862 s",
+   "exchanges": [
+    "x16",
+    "x17",
+    "x18",
+    "x19",
+    "x20"
+   ],
+   "tokens": [
+    "t4"
+   ],
+   "nodes": [
+    "pytest",
+    "gateway",
+    "127-0-0-1-8001",
+    "mw",
+    "sess"
+   ],
+   "segs": [
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "discover + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "400",
+     "err"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "initialize · tools/list + Bearer",
+     "tok"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "2 tools",
+     "dat"
+    ]
+   ],
+   "what": "The same probe 400, then the same handshake. `t4` passes the middleware because its signature, `iss`, `aud` and `exp` are fine; scope isn't part of that check. Arcade's built-in scope enforcement runs only for tools declared with `requires_auth`, and these tools aren't. `tools/list` returns both tools, as the test asserts.",
+   "wire": "→ POST /mcp server/discover   ← 400 Unsupported protocol version: 2026-07-28\n→ POST /mcp initialize        ← 200 2025-11-25\n→ POST /mcp tools/list        ← 200 [Memes_CaptionMeme, Memes_MakeMeme]",
+   "checks": [
+    [
+     "ResourceServerMiddleware",
+     "sig · iss · aud · exp ✓ (scope not checked)"
+    ]
+   ],
+   "goals": [
+    3,
+    5
+   ],
+   "code": [
+    "tests/test_live.py:60",
+    "tests/test_live.py:63",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/server.py:1326-1331",
+    "docs/decisions.md:21"
+   ],
+   "quiz": [
+    "Why doesn't the server refuse `t4` at the door?",
+    "The door checks *who the token is for* (aud) and that it's genuine. *What it may do* is decided per tool, so one server can host tools with different scopes."
+   ]
+  },
+  {
+   "id": "noperm-3",
+   "title": "Every tool refuses: insufficient_scope, as data",
+   "time": "+6.875 s",
+   "exchanges": [
+    "x21",
+    "x22",
+    "x23"
+   ],
+   "tokens": [
+    "t4"
+   ],
+   "nodes": [
+    "pytest",
+    "gateway",
+    "127-0-0-1-8001",
+    "mw",
+    "sess",
+    "tools"
+   ],
+   "segs": [
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "tools/call + Bearer",
+     "tok"
+    ],
+    [
+     "sess-tools",
+     1,
+     "require_scopes",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "isError: insufficient_scope",
+     "err"
+    ]
+   ],
+   "what": "Both calls reach their tools, and the first line of each, `require_scopes(context, \"memes:read\")`, raises `ToolExecutionError(\"insufficient_scope: …\")`. Arcade returns that as HTTP 200 with `isError: true`, and the test asserts `insufficient_scope` in both. The spec-ideal answer is HTTP 403 with `WWW-Authenticate: insufficient_scope`, which arcade's middleware can send for `requires_auth` tools; the project chose errors as data for now. The session then ends (x23).",
+   "wire": "→ tools/call Memes_MakeMeme     ← 200 {\"result\": {\"_meta\": \"…\", \"content\": [...], \"isError\": true}}\n→ tools/call Memes_CaptionMeme  ← 200 {\"result\": {\"_meta\": \"…\", \"content\": [...], \"isError\": true}}\n→ DELETE /mcp                   ← 200",
+   "checks": [
+    [
+     "make_meme → require_scopes",
+     "memes:read missing → insufficient_scope"
+    ],
+    [
+     "caption_meme → require_scopes",
+     "memes:read missing → insufficient_scope"
+    ]
+   ],
+   "inv": "Every tool checks its own scopes with `require_scopes` (fail closed): no token, no scopes, no tool.",
+   "note": "The test lists every tool by name and fails on a new one that isn't listed, so a tool can't ship without a scope check.",
+   "goals": [
+    3,
+    5
+   ],
+   "code": [
+    "servers/memes_mcp/src/memes_mcp/scopes.py:19-27",
+    "servers/memes_mcp/src/memes_mcp/server.py:64",
+    "servers/memes_mcp/src/memes_mcp/server.py:79",
+    ".venv/lib/python3.13/site-packages/arcade_mcp_server/resource_server/middleware.py:121-123",
+    "tests/test_live.py:61-66",
+    "docs/decisions.md:21"
+   ],
+   "quiz": [
+    "How could a client learn which scope to ask for?",
+    "Two ways: the error names `memes:read`, and memes-mcp's protected resource metadata (RFC 9728) advertises `scopes_supported=[\"memes:read\"]`."
+   ]
+  },
+  {
+   "id": "bg-1",
+   "title": "Consent once: an offline grant",
+   "time": "+6.901 s",
+   "exchanges": [
+    "x24"
+   ],
+   "tokens": [
+    "t7",
+    "t8",
+    "t9"
+   ],
+   "nodes": [
+    "pytest",
+    "localhost-8080",
+    "kc-token",
+    "worker",
+    "grants"
+   ],
+   "segs": [
+    [
+     "pytest--localhost-8080",
+     1,
+     "scope … offline_access",
+     "dat"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "offline refresh token",
+     "tok"
+    ],
+    [
+     "worker-grants",
+     1,
+     "put(sub, encrypted)",
+     "tok"
+    ]
+   ],
+   "what": "The worker test asks for `openid memes:read offline_access`. The refresh token `t8` now has `typ: Offline` and lives 604800 s (7 days idle, the realm's offline policy) instead of 1800 s. The test stores it in `GrantStore`, Fernet-encrypted, keyed by `sub`. In the app, this is the step-up consent at `/background/enable` through the browser, not a password grant.",
+   "wire": "→ POST …/openid-connect/token  {\"grant_type\": \"password\", \"client_id\": \"memes-dev\",\n                                \"scope\": \"openid memes:read offline_access\"}\n← 200  {\"refresh_expires_in\": 604800, \"refresh_token\": \"<jwt fp:3bc2ee9e>\", ...}\n\nt8  refresh  HS512  typ Offline  604800 s",
+   "checks": [
+    [
+     "Keycloak",
+     "offline_access is optional on memes-dev, and the user has the role"
+    ],
+    [
+     "The test",
+     "asserts typ == Offline"
+    ]
+   ],
+   "note": "The access token `t7` from this grant is never used: the worker always refreshes first.",
+   "roles": "Resource owner: the user, consenting once · Client: memes-dev (the test) · Authorization server: Keycloak",
+   "goals": [
+    1,
+    6
+   ],
+   "code": [
+    "tests/test_live.py:120-128",
+    "infra/keycloak/memes-realm.json:9-11",
+    "infra/keycloak/memes-realm.json:243-246",
+    "src/memes_agent/grants.py:34-36",
+    "src/memes_agent/web.py:207-213"
+   ],
+   "quiz": [
+    "Why is the offline token the most sensitive thing the app stores?",
+    "It survives logout and the SSO session for up to 30 days, and it mints fresh access tokens. So it's encrypted at rest and only the worker redeems it."
+   ]
+  },
+  {
+   "id": "bg-2",
+   "title": "The worker swaps the grant for a fresh access token",
+   "time": "+6.941 s",
+   "exchanges": [
+    "x25"
+   ],
+   "tokens": [
+    "t8",
+    "t10",
+    "t11"
+   ],
+   "nodes": [
+    "pytest",
+    "worker",
+    "grants",
+    "localhost-8080",
+    "kc-token"
+   ],
+   "segs": [
+    [
+     "worker-grants",
+     1,
+     "get(sub)",
+     "dat"
+    ],
+    [
+     "pytest--localhost-8080",
+     1,
+     "refresh_token grant",
+     "tok"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "new access + refresh",
+     "tok"
+    ],
+    [
+     "worker-grants",
+     1,
+     "put rotated",
+     "tok"
+    ]
+   ],
+   "what": "`run_once` decrypts the grant and refreshes it *before* doing anything else. Keycloak returns a new access token `t10` and a new offline refresh token `t11` (new `jti`, same `sid`), and the worker saves `t11` before running the agent, so a crash can't lose the grant. The test's refresher uses the public `memes-dev` client, with no secret. The real worker uses `memes-web` and its client secret.",
+   "wire": "→ POST …/openid-connect/token\n  {\"grant_type\": \"refresh_token\", \"client_id\": \"memes-dev\", \"refresh_token\": \"<jwt fp:3bc2ee9e>\"}\n← 200\n  {\"access_token\": \"<jwt fp:4fa825d1>\", \"refresh_expires_in\": 604800, \"refresh_token\": \"<jwt fp:8212119c>\"}",
+   "checks": [
+    [
+     "Keycloak",
+     "offline session alive; refresh token issued to this client"
+    ],
+    [
+     "The test",
+     "asserts the stored grant changed (rotated and saved)"
+    ]
+   ],
+   "note": "This capture shows a *new* refresh token. It doesn't show the old one dying. The realm file doesn't set `revokeRefreshToken`, which Keycloak leaves off by default, so `t8` may still be redeemable. Nothing re-used it here. An opt-in probe that redeems `t8` a second time would settle it.",
+   "goals": [
+    6
+   ],
+   "code": [
+    "src/memes_agent/worker.py:46-68",
+    "tests/test_live.py:87-105",
+    "tests/test_live.py:139",
+    "src/memes_agent/worker.py:96-99",
+    "src/memes_agent/auth.py:39-46",
+    "docs/decisions.md:34"
+   ],
+   "quiz": [
+    "Lesson 6a says the grant can only be redeemed with memes-web's client secret. Does that hold in this test?",
+    "No. This grant was issued to the public `memes-dev` client, which has no secret, so the encrypted `GrantStore` is the only protection. A refresh token is bound to the client it was issued to, which is why the test can't use the real worker's refresher."
+   ]
+  },
+  {
+   "id": "bg-3",
+   "title": "Same agent, same checks: memes-mcp can't tell it's background",
+   "time": "+6.952 s",
+   "exchanges": [
+    "x26",
+    "x27",
+    "x28",
+    "x29",
+    "x30",
+    "x31",
+    "x32",
+    "x33",
+    "x34",
+    "x35",
+    "x36"
+   ],
+   "tokens": [
+    "t10"
+   ],
+   "nodes": [
+    "pytest",
+    "worker",
+    "loop",
+    "gateway",
+    "llm",
+    "api-anthropic-com",
+    "127-0-0-1-8001",
+    "mw",
+    "sess",
+    "tools"
+   ],
+   "segs": [
+    [
+     "worker-loop",
+     1,
+     "run_agent(words)",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     1,
+     "MCP + Bearer t10",
+     "tok"
+    ],
+    [
+     "pytest--api-anthropic-com",
+     1,
+     "words + schemas",
+     "dat"
+    ],
+    [
+     "pytest--127-0-0-1-8001",
+     -1,
+     "meme + approved caption",
+     "dat"
+    ]
+   ],
+   "what": "The worker hands `t10` to a fresh `MCPToolGateway` and runs the same `run_agent`. On the wire it's test 1 again: the probe 400, the handshake, `Memes_MakeMeme`, and `Memes_CaptionMeme`, approved on the first try this time. memes-mcp validates `t10` exactly like `t1`. Same `iss`, same `aud`, same `azp`. Only `scope` adds `offline_access`. The meme goes to the inbox.",
+   "wire": "→ POST /mcp server/discover          ← 400\n→ initialize · initialized · GET · tools/list   ← 200 · 202 · 200 · 200\n→ tools/call Memes_MakeMeme          ← 200 isError false\n→ tools/call Memes_CaptionMeme       ← 200 isError false\n→ DELETE /mcp                        ← 200\n\nt10  aud http://127.0.0.1:8001/mcp  azp memes-dev  scope openid memes:read email profile offline_access",
+   "checks": [
+    [
+     "ResourceServerMiddleware",
+     "sig · iss · aud · exp, same as for t1"
+    ],
+    [
+     "make_meme, caption_meme",
+     "memes:read ✓"
+    ]
+   ],
+   "goals": [
+    3,
+    4,
+    6
+   ],
+   "code": [
+    "src/memes_agent/worker.py:70-80",
+    "src/memes_agent/worker.py:51-52",
+    "src/memes_agent/worker.py:98"
+   ],
+   "quiz": [
+    "How could memes-mcp's logs tell a background call from a click?",
+    "Today they can't: same client, same claims. The `# EXTEND:` in `worker.py` proposes a separate `memes-worker` client, so `azp` would differ. Another one down-scopes the refresh to `memes:read` only."
+   ]
+  },
+  {
+   "id": "bg-4",
+   "title": "Stop: revoke the grant at Keycloak",
+   "time": "+11.262 s",
+   "exchanges": [
+    "x37",
+    "x38"
+   ],
+   "tokens": [
+    "t13",
+    "t14"
+   ],
+   "nodes": [
+    "pytest",
+    "localhost-8080",
+    "kc-token",
+    "kc-revoke",
+    "grants"
+   ],
+   "segs": [
+    [
+     "pytest--localhost-8080",
+     1,
+     "password grant + offline_access",
+     "dat"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "offline token",
+     "tok"
+    ],
+    [
+     "pytest--localhost-8080",
+     1,
+     "revoke (RFC 7009)",
+     "tok"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "200",
+     "dat"
+    ]
+   ],
+   "what": "The last test gets a new offline grant, stores it, and revokes it at Keycloak's revocation endpoint (RFC 7009), as \"Stop\" does. The test is a public client, so it sends only `client_id`. The app's `/background/disable` authenticates with memes-web's secret, revokes, and then deletes the row. Deleting only our copy would leave a live grant at Keycloak.",
+   "wire": "→ POST …/openid-connect/revoke\n  {\"token\": \"<jwt fp:828cc164>\", \"client_id\": \"memes-dev\"}\n← 200",
+   "checks": [
+    [
+     "Keycloak",
+     "the token belongs to memes-dev → offline session ended"
+    ]
+   ],
+   "goals": [
+    6
+   ],
+   "code": [
+    "tests/test_live.py:142-151",
+    "src/memes_agent/web.py:216-226",
+    "src/memes_agent/auth.py:49-63",
+    "docs/decisions.md:35"
+   ],
+   "quiz": [
+    "Why revoke at Keycloak before deleting the row?",
+    "The grant lives at Keycloak as an offline session. Deleting our encrypted copy alone leaves it valid until its 7-day idle or 30-day max lifetime runs out."
+   ]
+  },
+  {
+   "id": "bg-5",
+   "title": "The worker finds a dead grant: invalid_grant → needs_reauth",
+   "time": "+11.324 s",
+   "exchanges": [
+    "x39"
+   ],
+   "tokens": [
+    "t14"
+   ],
+   "nodes": [
+    "pytest",
+    "worker",
+    "grants",
+    "localhost-8080",
+    "kc-token"
+   ],
+   "segs": [
+    [
+     "pytest--localhost-8080",
+     1,
+     "refresh_token grant",
+     "tok"
+    ],
+    [
+     "pytest--localhost-8080",
+     -1,
+     "400 invalid_grant",
+     "err"
+    ],
+    [
+     "worker-grants",
+     1,
+     "mark_needs_reauth",
+     "dat"
+    ]
+   ],
+   "what": "`run_once` tries to refresh the revoked token. Keycloak answers 400 `invalid_grant`, because the offline session behind it is gone. The worker treats that as \"only the user can fix this\": it marks the grant `needs_reauth`, drops the token, and moves on. The app shows a Reconnect banner. No MCP or Claude call happens; the test passes no gateway or model at all.",
+   "wire": "→ POST …/openid-connect/token\n  {\"grant_type\": \"refresh_token\", \"client_id\": \"memes-dev\", \"refresh_token\": \"<jwt fp:828cc164>\"}\n← 400\n  {\"error\": \"invalid_grant\", \"error_description\": \"Offline user session not found\"}",
+   "checks": [
+    [
+     "Keycloak",
+     "offline session not found → invalid_grant"
+    ],
+    [
+     "run_once",
+     "OAuthError → mark_needs_reauth, keep the row"
+    ]
+   ],
+   "inv": "Re-consent is a product flow, not an error: a dead grant becomes `needs_reauth`, never a silent delete.",
+   "goals": [
+    6
+   ],
+   "code": [
+    "tests/test_live.py:100-101",
+    "tests/test_live.py:153-158",
+    "src/memes_agent/worker.py:53-60",
+    "src/memes_agent/grants.py:53-55",
+    "docs/decisions.md:34"
+   ],
+   "quiz": [
+    "The worker catches `OAuthError` separately from other exceptions. Why?",
+    "`invalid_grant` is permanent, so retrying is pointless and the user must re-consent. A network error is temporary, so the grant is kept and retried on the next pass."
+   ]
+  }
+ ],
+ "flows": [
+  {
+   "id": "meme",
+   "name": "One meme: test_agent_fetches_a_meme_end_to_end",
+   "short": "One meme",
+   "steps": [
+    "meme-1",
+    "meme-2",
+    "meme-3",
+    "meme-4",
+    "meme-5",
+    "meme-6",
+    "meme-7",
+    "meme-8",
+    "meme-9"
+   ],
+   "dim_nodes": [
+    "worker",
+    "grants",
+    "kc-revoke"
+   ],
+   "dim_edges": [
+    "worker-grants",
+    "worker-loop"
+   ]
+  },
+  {
+   "id": "noperm",
+   "name": "No permission: a token without memes:read",
+   "short": "No permission",
+   "steps": [
+    "noperm-1",
+    "noperm-2",
+    "noperm-3"
+   ],
+   "dim_nodes": [
+    "worker",
+    "grants",
+    "kc-revoke",
+    "loop",
+    "llm",
+    "api-anthropic-com"
+   ],
+   "dim_edges": [
+    "worker-grants",
+    "worker-loop",
+    "loop-llm",
+    "loop-gateway",
+    "pytest--api-anthropic-com"
+   ]
+  },
+  {
+   "id": "bg",
+   "name": "Background: offline grant, refresh, revoke",
+   "short": "Background",
+   "steps": [
+    "bg-1",
+    "bg-2",
+    "bg-3",
+    "bg-4",
+    "bg-5"
+   ],
+   "dim_nodes": [],
+   "dim_edges": []
+  }
+ ]
+}

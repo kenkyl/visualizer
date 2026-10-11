@@ -10,6 +10,8 @@
    "run-hooks"
   ],
   "redaction": "strict",
+  "exit_code": 0,
+  "seconds": 11.693,
   "rules": {
    "OAUTH-ROPC": "fired",
    "MCP-VERSION-FALLBACK": "fired",
@@ -21,7 +23,8 @@
    "HTTP-TOKENS": "passed",
    "TOKEN-IN-URL": "passed",
    "HOST-ALIAS": "fired"
-  }
+  },
+  "facts_hash": "sha256:e127b032c3bb6c521c662683eb2d1adce5a46b4c33be67d35e2b7994a0884121"
  },
  "boundaries": [
   {
@@ -3923,7 +3926,14 @@
    "confidence": "observed"
   }
  ],
- "logs": [],
+ "logs": [
+  {
+   "id": "capture",
+   "title": "authtrace capture: 39 exchange(s), redacted",
+   "text": "[  1.806s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:4b64c169,fp:c6ce940b,fp:d33f962b\n[  1.863s] pytest       POST   http://127.0.0.1:8001/mcp → 400  tokens fp:4b64c169\n[  1.866s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  1.870s] pytest       POST   http://127.0.0.1:8001/mcp → 202  tokens fp:4b64c169\n[  1.870s] pytest       GET    http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  1.873s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  1.878s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  2.853s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  2.886s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  4.370s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  4.381s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  5.764s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  5.776s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  6.807s] pytest       DELETE http://127.0.0.1:8001/mcp → 200  tokens fp:4b64c169\n[  6.819s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:aff83cb3,fp:ee9e6720,fp:f0b48225\n[  6.862s] pytest       POST   http://127.0.0.1:8001/mcp → 400  tokens fp:f0b48225\n[  6.865s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.868s] pytest       POST   http://127.0.0.1:8001/mcp → 202  tokens fp:f0b48225\n[  6.869s] pytest       GET    http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.871s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.875s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.881s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.889s] pytest       DELETE http://127.0.0.1:8001/mcp → 200  tokens fp:f0b48225\n[  6.901s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:3bc2ee9e,fp:c374c103,fp:fc0fa811\n[  6.941s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:3bc2ee9e,fp:4fa825d1,fp:56dee583,fp:8212119c\n[  6.952s] pytest       POST   http://127.0.0.1:8001/mcp → 400  tokens fp:4fa825d1\n[  6.955s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  6.959s] pytest       POST   http://127.0.0.1:8001/mcp → 202  tokens fp:4fa825d1\n[  6.960s] pytest       GET    http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  6.966s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  6.971s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[  8.410s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[  8.421s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[ 10.042s] pytest       POST   http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[ 10.055s] pytest       POST   https://api.anthropic.com/v1/messages → 200\n[ 11.246s] pytest       DELETE http://127.0.0.1:8001/mcp → 200  tokens fp:4fa825d1\n[ 11.262s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 200  tokens fp:52549226,fp:828cc164,fp:ae3055da\n[ 11.313s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/revoke → 200  tokens fp:828cc164\n[ 11.324s] pytest       POST   http://localhost:8080/realms/memes/protocol/openid-connect/token → 400  tokens fp:828cc164",
+   "confidence": "observed"
+  }
+ ],
  "layout": {
   "viewbox": [
    1080,
@@ -3932,9 +3942,9 @@
   "boundaries": {
    "machine": [
     24,
-    32,
+    38,
     642,
-    244
+    238
    ]
   },
   "nodes": {
@@ -3960,7 +3970,7 @@
     820,
     70,
     220,
-    64
+    72
    ]
   },
   "edges": {
@@ -4028,7 +4038,7 @@
      ],
      [
       930.0,
-      134
+      142
      ]
     ],
     "label": [

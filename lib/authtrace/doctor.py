@@ -69,7 +69,10 @@ def diagnose() -> dict:
 
     # EXTEND: add a mode here when a new capture mechanism lands (PLAN.md §5).
     modes = [
-        {"id": "core", "name": "decode, check, render", "milestone": "M1-M3", "built": False,
+        {"id": "render", "name": "render a trace (HTML viewer)", "milestone": "M1", "built": True,
+         "missing": [] if python_ok else [f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+"],
+         "note": "stdlib only"},
+        {"id": "core", "name": "decode, build, check", "milestone": "M3-M4", "built": False,
          "missing": [] if python_ok else [f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+"],
          "note": "stdlib only"},
         {"id": "hooks", "name": "capture a Python app (in-process hooks)", "milestone": "M2",

@@ -39,3 +39,26 @@ The handoff's `PLAN.md` and `reference/` captures live in `docs/authtrace/`. The
 ## 2026-10-10: authtrace outputs stay out of the target's history
 
 Traces go to `.authtrace/` in the target (gitignored) or a path outside it. The architecture skill is different on purpose: its diagram belongs in the repo.
+
+## 2026-10-10: trace schema v0 choices (M1)
+
+The renderer follows PLAN §6, with these changes, made while porting `reference/memes-agent-flow.html`:
+
+- **Tours live in `narrative.flows`, not top-level `flows`.** A tour is a choice of steps, what to dim, and a banner. All of that is Claude's, and the web tour has no captured exchanges at all. The core will describe a capture run in facts when it has one to describe.
+- **Captions are narrative.** The lines under a node or edge name ("holds the token, adds Bearer") go in `narrative.captions`. The fact keeps its `label` and `kind`, and the viewer falls back to those.
+- **`layout` is required until auto-layout lands.** Every boundary, node and edge needs a box or a path. `trace.problems()` says which are missing. The role-column layout (PLAN §11) is an `# EXTEND:` point in `trace.py` and `viewer.html`.
+- **Narrative prose is a markdown subset, never HTML:** `` `code` ``, `**bold**`, `*italic*` and `[text](#anchor)` links to in-page anchors only. The viewer escapes everything else, and the embedded JSON escapes `<`, `>` and `&`, so a trace can't inject markup, whether Claude wrote it or someone dropped it in. Wire blocks are literal text.
+- **Step confidence is derived, not stored.** `render` computes it with `confidence.step_confidence()` and embeds it next to the trace. The trace itself never holds a step-level confidence, so nothing can claim more certainty than the facts support. M4's `check` will reuse the same function.
+- **Two node kinds beyond §6:** `endpoint` (one of an AS's URLs, drawn as a single mono line) and `component` (a part inside a service, such as middleware).
+
+The memes-agent fixture was assembled once from the artifact's data (`narrative`, `layout`) and Appendix A plus the traced log (`exchanges`, `tokens`). Token fingerprints are `null` because the raw tokens were never kept. The golden test pins the output. A parity test checks that the step titles, goals and claims match the artifact.
+
+## 2026-10-11: how a step's confidence is ranked
+
+`step_confidence()` ranks levels from strongest to weakest: verified, observed, decoded, declared, inferred, unknown. A step takes the weakest level among the exchanges it cites, and citing code lifts anything below `declared` up to `declared`.
+
+- **verified above observed:** a checked signature proves who minted a value. Seeing it on the wire doesn't.
+- **decoded below observed:** the bytes were seen, but what they claim (a JWT's `sub` or `aud`) is unchecked and could be forged.
+- **A step that cites nothing is `inferred`,** because it's Claude's reasoning. `unknown` is kept for explicit gaps in the facts.
+
+In the memes-agent trace, live step 4 (signature verification) is `declared`, because the JWKS fetch wasn't observed but `server.py:29` is cited. The five web-tour steps that cite no code are `inferred`.

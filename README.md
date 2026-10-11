@@ -1,6 +1,10 @@
 # visualizer
 
-A Claude Code plugin that draws architecture diagrams, and will keep them up to date. It reads a repository and writes a small JSON model of its components, data flows, trust boundaries and state. It renders that model as Mermaid that GitHub displays natively, in light and dark mode.
+A Claude Code plugin that draws how systems fit together: architecture diagrams that stay up to date, and (in preview) traces of how identity and access flow through a running system.
+
+## Architecture
+
+`/visualizer:architecture` reads a repository and writes a small JSON model of its components, data flows, trust boundaries and state. It renders that model as Mermaid that GitHub displays natively, in light and dark mode.
 
 - `ARCHITECTURE.md`: overview diagram and legend, a component table with evidence links, where state lives, and sequence diagrams for the key flows.
 - `README.md`: the overview, between `<!-- visualizer:start -->` and `<!-- visualizer:end -->` markers, plus a link to the full page.
@@ -8,6 +12,18 @@ A Claude Code plugin that draws architecture diagrams, and will keep them up to 
 Claude does the reasoning. [`scripts/viz.py`](scripts/viz.py), stdlib-only Python 3.9+, does the deterministic parts. It validates the model (ids, references, limits, evidence paths that must exist, a secret lint) and renders it the same way every time.
 
 **Status:** early development. First runs work. Updating an existing diagram, with an archive of the old one and a changelog, comes next.
+
+## Auth flows (preview)
+
+`authtrace`, in [`lib/authtrace/`](lib/authtrace/), watches a running system's OAuth, OIDC and MCP-authorization traffic and renders it as an interactive step-through: which tokens exist, where they travel, who checks which claim, and how sure it is about each fact (observed, decoded, verified, declared, inferred or unknown). It never changes the system it watches, and it never stores raw tokens.
+
+| Command | Does | Needs |
+|---|---|---|
+| `/visualizer:auth-flow [notes]` | Runs a flow under capture, explains it from the code, and renders a viewer | `python3`; `uv` for browser, proxy and live capture |
+| `/visualizer:auth-flow doctor` | Reports what this machine can capture | `python3` |
+| `/visualizer:explain-token <jwt>` | Decodes and explains a token, masking it in the output | `python3` |
+
+**Status:** scaffold only. `doctor` works; capture, build, check and render follow the milestones in [`docs/authtrace/PLAN.md`](docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). Both skills run only when you type them. The reference captures that the viewer is modelled on are in [`docs/authtrace/reference/`](docs/authtrace/reference/).
 
 ## Install
 
@@ -47,6 +63,7 @@ python3 -m unittest discover -s tests
 ```
 
 `VIZ_UPDATE_GOLDEN=1` rewrites the golden files after an intended output change. `ARCADE_TEST_REPO=<checkout at cc1197d>` also checks the example's evidence against the real repo. `scripts/viz.py preview MODEL` writes a page that renders every diagram with a pinned Mermaid, for a visual check.
+`python3 scripts/authtrace.py doctor` checks the auth-flow prerequisites. Decisions are in [`docs/decisions.md`](docs/decisions.md).
 
 ## License
 

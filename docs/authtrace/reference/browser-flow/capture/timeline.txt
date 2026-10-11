@@ -1,0 +1,84 @@
+[ 0.000s] observer Keycloak admin API [before]: sessions for dummyuser1 = jQfHpj4K(memes-dev)
+[ 0.004s] web     ⇠ GET    / ← 200
+[ 0.008s] browser GET    http://localhost:8000/ → 200
+[ 0.027s] browser — page: Random Memes
+[ 0.121s] web     ⇠ GET    /login ← 302 Location: http://localhost:8080/realms/memes/protocol/openid-connect/auth?response_type=code&client_
+[ 0.149s] web     → GET    http://localhost:8080/realms/memes/.well-known/openid-configuration ← 200 (5 ms)
+[ 0.160s] browser GET    http://localhost:8000/login → 302
+                   Set-Cookie: session
+[ 0.187s] browser GET    http://localhost:8080/realms/memes/protocol/openid-connect/auth?response_type=code&client_id=memes-web&redirect_uri=h… → 200
+                   Set-Cookie: AUTH_SESSION_ID, KC_AUTH_SESSION_HASH, KC_RESTART
+[ 0.255s] browser — page: Sign in to Random Memes
+[ 0.945s] web     ⇠ GET    /auth/callback ← 303 Location: /onboarding
+[ 0.947s] browser POST   http://localhost:8080/realms/memes/login-actions/authenticate?session_code=1BoxUJ…(43)&execution=656014…(36)&client_i… → 302
+                   form {"username": "dummyuser1", "password": "***", "credentialId": ""}
+                   Set-Cookie: KC_RESTART=∅, KEYCLOAK_IDENTITY, KEYCLOAK_SESSION
+[ 0.947s] web     → POST   http://localhost:8080/realms/memes/protocol/openid-connect/token grant_type=authorization_code code=192413…(98) code_verifier=XaSJ2f…(48) ← 200 (7 ms)
+[ 0.955s] web     → GET    http://localhost:8080/realms/memes/protocol/openid-connect/certs ← 200 (3 ms)
+[ 0.960s] web     authlib: ID token valid (iss, aud=memes-web, exp, nonce, at_hash) → userinfo.sub=95689752-…
+[ 0.960s] web     TokenStore.put(sub) access=fp:9e01795c id=fp:2d703050 refresh=fp:9c29d045
+[ 0.960s] web     ProfileStore.get(sub) found=False
+[ 0.961s] web     ⇠ GET    /onboarding ← 200
+[ 0.962s] web     ProfileStore.get(sub) found=False
+[ 0.962s] browser GET    http://localhost:8000/auth/callback?state=R7bCQ3…(30)&session_state=2Ckpo7…(24)&iss=http://localhost:8080/realms/meme… → 303
+                   Set-Cookie: session
+[ 0.966s] browser GET    http://localhost:8000/onboarding → 200
+[ 1.476s] browser — page: About you · Random Memes
+[ 1.567s] observer Keycloak admin API [after-login]: sessions for dummyuser1 = 2Ckpo75D(memes-web), jQfHpj4K(memes-dev)
+[ 1.622s] web     ⇠ POST   /onboarding ← 303 Location: /meme
+[ 1.623s] web     ProfileStore.save(sub, words=['chaotic', 'nerdy', 'sleepy'])
+[ 1.625s] web     ⇠ GET    /meme ← 200
+[ 1.625s] web     ProfileStore.get(sub) found=True
+[ 1.626s] browser POST   http://localhost:8000/onboarding → 303
+                   form {"word1": "chaotic", "word2": "nerdy", "word3": "sleepy"}
+[ 1.629s] browser GET    http://localhost:8000/meme → 200
+[ 1.635s] browser — page: Make a meme · Random Memes
+[ 1.673s] web     ⇠ POST   /meme ← 200
+[ 1.674s] web     ProfileStore.get(sub) found=True
+[ 1.674s] web     TokenStore.access_token(sub) → fp:9e01795c (899 s left)
+[ 1.674s] web     MCPToolGateway(url, token=fp:9e01795c)
+[ 1.677s] web     → POST   http://127.0.0.1:8001/mcp server/discover ← 400 (13 ms)  Bearer fp:9e01795c
+[ 1.678s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (10.8 ms)
+[ 1.681s] mcp     → GET    http://localhost:8080/realms/memes/protocol/openid-connect/certs ← 200 (6 ms)
+[ 1.688s] mcp     JWKS cache fetched
+[ 1.691s] web     → POST   http://127.0.0.1:8001/mcp initialize ← 200 (4 ms)  Bearer fp:9e01795c
+[ 1.691s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.2 ms)
+[ 1.691s] mcp     JWKS cache hit
+[ 1.697s] web     → POST   http://127.0.0.1:8001/mcp notifications/initialized ← 202 (3 ms)  Bearer fp:9e01795c
+[ 1.697s] web     → GET    http://127.0.0.1:8001/mcp ← 200 (3 ms)  Bearer fp:9e01795c
+[ 1.697s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.6 ms)
+[ 1.697s] mcp     JWKS cache hit
+[ 1.699s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.2 ms)
+[ 1.699s] mcp     JWKS cache hit
+[ 1.700s] web     → POST   http://127.0.0.1:8001/mcp tools/list ← 200 (3 ms)  Bearer fp:9e01795c
+[ 1.701s] mcp     JWKS cache hit
+[ 1.701s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.2 ms)
+[ 1.704s] web     Claude ← 1 message(s), tools=['Memes_MakeMeme']
+[ 1.706s] web     → POST   https://api.anthropic.com/v1/messages ← 200 (1620 ms)
+[ 3.353s] web     Claude → stop_reason=tool_use
+[ 3.353s] web     tools.call Memes_MakeMeme {"hints": ["chaotic", "nerdy", "sleepy"]}
+[ 3.355s] web     → POST   http://127.0.0.1:8001/mcp tools/call ← 200 (11 ms)  Bearer fp:9e01795c
+[ 3.355s] mcp     JWKS cache hit
+[ 3.356s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (0.4 ms)
+[ 3.358s] mcp     make_meme user=95689752-4a74-4283-85ce-5ab8c57bf262 hints=['chaotic', 'nerdy', 'sleepy'] -> one-does-not-simply
+[ 3.394s] web     tool result id=one-does-not-simply matched_hint=nerdy
+[ 3.394s] web     Claude ← 3 message(s), tools=['Memes_MakeMeme']
+[ 3.395s] web     → POST   https://api.anthropic.com/v1/messages ← 200 (955 ms)
+[ 4.353s] web     Claude → stop_reason=end_turn
+[ 4.354s] web     → DELETE http://127.0.0.1:8001/mcp ← 200 (4 ms)  Bearer fp:9e01795c
+[ 4.356s] mcp     validate fp:9e01795c ok=True user_id=9568…bf262 client_id=memes-web (1.1 ms)
+[ 4.356s] mcp     JWKS cache hit
+[ 4.365s] browser POST   http://localhost:8000/meme → 200
+[ 4.484s] browser — page: Make a meme · Random Memes
+[ 4.595s] observer Keycloak admin API [after-meme]: sessions for dummyuser1 = 2Ckpo75D(memes-web), jQfHpj4K(memes-dev)
+[ 4.625s] web     ⇠ GET    /logout ← 303 Location: http://localhost:8080/realms/memes/protocol/openid-connect/logout?post_logout_redirect_uri
+[ 4.625s] web     TokenStore.pop(sub) removed=True
+[ 4.629s] browser GET    http://localhost:8000/logout → 303
+                   Set-Cookie: session=∅
+[ 4.635s] web     ⇠ GET    / ← 200
+[ 4.640s] browser GET    http://localhost:8080/realms/memes/protocol/openid-connect/logout?post_logout_redirect_uri=http://localhost:8000/&cli… → 302
+                   Set-Cookie: AUTH_SESSION_ID, KEYCLOAK_IDENTITY=∅, KEYCLOAK_SESSION=∅
+[ 4.641s] browser GET    http://localhost:8000/ → 200
+[ 5.151s] browser — page: Random Memes
+[ 5.240s] observer Keycloak admin API [after-logout]: sessions for dummyuser1 = jQfHpj4K(memes-dev)
+[ 5.240s] browser (+11 static assets not shown: i.imgflip.com, localhost:8080)

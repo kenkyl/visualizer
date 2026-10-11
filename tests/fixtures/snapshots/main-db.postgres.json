@@ -1,0 +1,242 @@
+{
+  "generator": "visualizer",
+  "snapshot_version": 1,
+  "engine": "postgres",
+  "store": "main-db",
+  "taken": "2026-10-11",
+  "server_version": "16.15",
+  "sampled": false,
+  "scope": {
+    "exclude": [
+      "alembic_version",
+      "django_migrations",
+      "schema_migrations",
+      "ar_internal_metadata",
+      "flyway_schema_history",
+      "knex_migrations",
+      "knex_migrations_lock",
+      "_prisma_migrations",
+      "goose_db_version",
+      "__diesel_schema_migrations",
+      "__EFMigrationsHistory"
+    ]
+  },
+  "entities": [
+    {
+      "name": "billing.invoices",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "uuid",
+            "nullable": false,
+            "key": "pk"
+          },
+          {
+            "name": "order_id",
+            "type": "bigint",
+            "nullable": true
+          },
+          {
+            "name": "data",
+            "type": "jsonb",
+            "nullable": true
+          }
+        ],
+        "indexes": [
+          {
+            "name": "invoices_data",
+            "fields": [
+              "data"
+            ],
+            "unique": false,
+            "method": "gin"
+          }
+        ],
+        "estimate": 0
+      }
+    },
+    {
+      "name": "public.order_items",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "bigint",
+            "nullable": false,
+            "key": "pk"
+          },
+          {
+            "name": "sku",
+            "type": "text",
+            "nullable": false,
+            "key": "pk"
+          },
+          {
+            "name": "qty",
+            "type": "integer",
+            "nullable": false
+          }
+        ],
+        "indexes": [],
+        "estimate": 0
+      }
+    },
+    {
+      "name": "public.orders",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "bigint",
+            "nullable": false,
+            "default": "nextval('orders_id_seq'::regclass)",
+            "key": "pk"
+          },
+          {
+            "name": "user_id",
+            "type": "bigint",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "type": "order_status",
+            "nullable": false,
+            "default": "'pending'::order_status"
+          },
+          {
+            "name": "total_cents",
+            "type": "integer",
+            "nullable": false,
+            "comment": "Order total in cents, tax included"
+          },
+          {
+            "name": "placed_at",
+            "type": "timestamptz",
+            "nullable": true
+          }
+        ],
+        "indexes": [
+          {
+            "name": "orders_user_status",
+            "fields": [
+              "user_id",
+              "status"
+            ],
+            "unique": false
+          }
+        ],
+        "estimate": 0,
+        "checks": [
+          {
+            "name": "ck_orders_total_nonnegative",
+            "definition": "CHECK ((total_cents >= 0))"
+          }
+        ]
+      }
+    },
+    {
+      "name": "public.paid_orders",
+      "kind": "view",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "bigint",
+            "nullable": true
+          },
+          {
+            "name": "user_id",
+            "type": "bigint",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "order_status",
+            "nullable": true
+          },
+          {
+            "name": "total_cents",
+            "type": "integer",
+            "nullable": true
+          },
+          {
+            "name": "placed_at",
+            "type": "timestamptz",
+            "nullable": true
+          }
+        ],
+        "indexes": []
+      }
+    },
+    {
+      "name": "public.users",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "bigint",
+            "nullable": false,
+            "default": "nextval('users_id_seq'::regclass)",
+            "key": "pk"
+          },
+          {
+            "name": "email",
+            "type": "text",
+            "nullable": false,
+            "key": "unique"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz",
+            "nullable": false,
+            "default": "now()"
+          }
+        ],
+        "indexes": [],
+        "estimate": 500,
+        "comment": "Shop accounts"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": [
+        "billing.invoices",
+        "order_id"
+      ],
+      "to": [
+        "public.orders",
+        "id"
+      ],
+      "kind": "fk"
+    },
+    {
+      "from": [
+        "public.order_items",
+        "order_id"
+      ],
+      "to": [
+        "public.orders",
+        "id"
+      ],
+      "kind": "fk",
+      "on_delete": "cascade"
+    },
+    {
+      "from": [
+        "public.orders",
+        "user_id"
+      ],
+      "to": [
+        "public.users",
+        "id"
+      ],
+      "kind": "fk"
+    }
+  ]
+}

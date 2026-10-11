@@ -1,0 +1,876 @@
+{
+  "meta": {
+    "generator": "visualizer",
+    "model": "data-models",
+    "schema_version": 1,
+    "model_sha": null,
+    "model_date": null,
+    "detail": "full",
+    "readme": {
+      "embed": true,
+      "path": "README.md",
+      "placement": "after:Architecture"
+    },
+    "notes": [
+      {
+        "text": "focus on orders and the session cache",
+        "added": "2026-10-11"
+      }
+    ]
+  },
+  "system": {
+    "name": "shop",
+    "summary": "shop keeps accounts, orders and invoices in Postgres, sessions, carts and the product catalogue in Redis, and reviews and clickstream events in MongoDB. Postgres is the system of record; Redis entries can be rebuilt or expire.",
+    "highlights": [
+      "Orders reference users by foreign key; Redis sessions and Mongo events reference them by id only, unchecked.",
+      "Sessions expire after 30 minutes; carts never expire, so abandoned carts accumulate.",
+      "Product data lives only in Redis hashes, indexed by Redis Search for the catalogue page."
+    ]
+  },
+  "stores": [
+    {
+      "id": "main-db",
+      "name": "Main database",
+      "engine": "postgres",
+      "role": "System of record for accounts, orders and invoices.",
+      "durability": "Durable: Docker volume, migrated with Alembic",
+      "snapshot": {
+        "taken": "2026-10-11",
+        "server_version": "16.15",
+        "sampled": false
+      },
+      "evidence": [
+        "migrations/",
+        "app/models.py"
+      ],
+      "connection": {
+        "env": "DATABASE_URL"
+      }
+    },
+    {
+      "id": "cache",
+      "name": "Session cache",
+      "engine": "redis",
+      "role": "Sessions, carts, rate limits and the product catalogue.",
+      "durability": "Disposable: rebuilt from Postgres, or expires",
+      "snapshot": {
+        "taken": "2026-10-11",
+        "server_version": "8.10.2",
+        "sampled": true
+      },
+      "evidence": [
+        "app/cache.py"
+      ],
+      "connection": {
+        "env": "REDIS_URL"
+      },
+      "scope": {
+        "sample": 20
+      }
+    },
+    {
+      "id": "reviews-db",
+      "name": "Reviews",
+      "engine": "mongodb",
+      "role": "Product reviews and clickstream events.",
+      "durability": "Durable",
+      "snapshot": {
+        "taken": "2026-10-11",
+        "server_version": "7.0.43",
+        "sampled": true
+      },
+      "evidence": [
+        "app/reviews.py"
+      ],
+      "connection": {
+        "env": "MONGO_URL"
+      },
+      "scope": {
+        "sample": 200
+      }
+    },
+    {
+      "id": "event-payloads",
+      "name": "Code models",
+      "engine": "code",
+      "role": "Shapes defined in code: published events and JSONB payloads.",
+      "durability": "Not stored",
+      "evidence": [
+        "app/events.py"
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "id": "users",
+      "store": "main-db",
+      "name": "public.users",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "bigint",
+            "nullable": false,
+            "default": "nextval('users_id_seq'::regclass)",
+            "key": "pk"
+          },
+          {
+            "name": "email",
+            "type": "text",
+            "nullable": false,
+            "key": "unique"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz",
+            "nullable": false,
+            "default": "now()"
+          }
+        ],
+        "indexes": [],
+        "estimate": 500,
+        "comment": "Shop accounts"
+      },
+      "observed_hash": "871911b252b9",
+      "declared": {
+        "evidence": [
+          "app/models.py"
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": "BigInteger"
+          },
+          {
+            "name": "email",
+            "type": "String"
+          },
+          {
+            "name": "created_at",
+            "type": "DateTime"
+          }
+        ]
+      }
+    },
+    {
+      "id": "orders",
+      "store": "main-db",
+      "name": "public.orders",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "bigint",
+            "nullable": false,
+            "default": "nextval('orders_id_seq'::regclass)",
+            "key": "pk"
+          },
+          {
+            "name": "user_id",
+            "type": "bigint",
+            "nullable": false
+          },
+          {
+            "name": "status",
+            "type": "order_status",
+            "nullable": false,
+            "default": "'pending'::order_status"
+          },
+          {
+            "name": "total_cents",
+            "type": "integer",
+            "nullable": false,
+            "comment": "Order total in cents, tax included"
+          },
+          {
+            "name": "placed_at",
+            "type": "timestamptz",
+            "nullable": true
+          }
+        ],
+        "indexes": [
+          {
+            "name": "orders_user_status",
+            "fields": [
+              "user_id",
+              "status"
+            ],
+            "unique": false
+          }
+        ],
+        "estimate": 0,
+        "checks": [
+          {
+            "name": "ck_orders_total_nonnegative",
+            "definition": "CHECK ((total_cents >= 0))"
+          }
+        ]
+      },
+      "observed_hash": "3e43dd30cfe0",
+      "description": "One row per checkout, from pending to shipped.",
+      "declared": {
+        "evidence": [
+          "app/models.py"
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": "BigInteger"
+          },
+          {
+            "name": "user_id",
+            "type": "BigInteger"
+          },
+          {
+            "name": "status",
+            "type": "Enum(OrderStatus)"
+          },
+          {
+            "name": "total_cents",
+            "type": "Integer"
+          },
+          {
+            "name": "placed_at",
+            "type": "DateTime"
+          },
+          {
+            "name": "coupon_code",
+            "type": "String(32)"
+          }
+        ]
+      },
+      "field_descriptions": {
+        "status": "pending → paid → shipped",
+        "placed_at": "Null until checkout completes"
+      }
+    },
+    {
+      "id": "order-items",
+      "store": "main-db",
+      "name": "public.order_items",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "bigint",
+            "nullable": false,
+            "key": "pk"
+          },
+          {
+            "name": "sku",
+            "type": "text",
+            "nullable": false,
+            "key": "pk"
+          },
+          {
+            "name": "qty",
+            "type": "integer",
+            "nullable": false
+          }
+        ],
+        "indexes": [],
+        "estimate": 0
+      },
+      "observed_hash": "a891b1ef9afc",
+      "description": "Line items: one row per SKU in an order."
+    },
+    {
+      "id": "paid-orders",
+      "store": "main-db",
+      "name": "public.paid_orders",
+      "kind": "view",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "bigint",
+            "nullable": true
+          },
+          {
+            "name": "user_id",
+            "type": "bigint",
+            "nullable": true
+          },
+          {
+            "name": "status",
+            "type": "order_status",
+            "nullable": true
+          },
+          {
+            "name": "total_cents",
+            "type": "integer",
+            "nullable": true
+          },
+          {
+            "name": "placed_at",
+            "type": "timestamptz",
+            "nullable": true
+          }
+        ],
+        "indexes": []
+      },
+      "observed_hash": "7560836620aa",
+      "description": "Orders whose payment has cleared."
+    },
+    {
+      "id": "billing-invoices",
+      "store": "main-db",
+      "name": "billing.invoices",
+      "kind": "table",
+      "observed": {
+        "fields": [
+          {
+            "name": "id",
+            "type": "uuid",
+            "nullable": false,
+            "key": "pk"
+          },
+          {
+            "name": "order_id",
+            "type": "bigint",
+            "nullable": true
+          },
+          {
+            "name": "data",
+            "type": "jsonb",
+            "nullable": true
+          }
+        ],
+        "indexes": [
+          {
+            "name": "invoices_data",
+            "fields": [
+              "data"
+            ],
+            "unique": false,
+            "method": "gin"
+          }
+        ],
+        "estimate": 0
+      },
+      "observed_hash": "0c22608d4214",
+      "description": "One invoice per paid order; the payload is the payment provider's JSON.",
+      "field_descriptions": {
+        "data": "The provider's invoice payload"
+      }
+    },
+    {
+      "id": "session-id",
+      "store": "cache",
+      "name": "session:{id}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "hash",
+        "ttl": "up to 29m",
+        "estimate": 8,
+        "sample": 8,
+        "fields": [
+          {
+            "name": "csrf",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "expires",
+            "type": "string",
+            "presence": 0.88
+          },
+          {
+            "name": "user_id",
+            "type": "string",
+            "presence": 1.0
+          }
+        ]
+      },
+      "observed_hash": "25ca9e2ada70",
+      "description": "A signed-in browser session.",
+      "field_descriptions": {
+        "csrf": "Per-session CSRF token",
+        "expires": "Absolute expiry, epoch seconds"
+      },
+      "declared": {
+        "evidence": [
+          "app/cache.py"
+        ],
+        "type": "hash",
+        "ttl": "30m",
+        "fields": [
+          {
+            "name": "user_id"
+          },
+          {
+            "name": "csrf"
+          },
+          {
+            "name": "expires"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cart-id",
+      "store": "cache",
+      "name": "cart:{id}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "set",
+        "ttl": "none",
+        "estimate": 3,
+        "sample": 3,
+        "fields": []
+      },
+      "observed_hash": "0c1196111e8e",
+      "description": "The SKUs in a user's cart, keyed by user id."
+    },
+    {
+      "id": "product-id",
+      "store": "cache",
+      "name": "product:{id}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "hash",
+        "ttl": "none",
+        "estimate": 3,
+        "sample": 3,
+        "fields": [
+          {
+            "name": "category",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "price",
+            "type": "string",
+            "presence": 1.0
+          }
+        ]
+      },
+      "observed_hash": "e805d069df5d",
+      "description": "Catalogue entry for one product."
+    },
+    {
+      "id": "idx-products",
+      "store": "cache",
+      "name": "idx:products",
+      "kind": "search-index",
+      "observed": {
+        "estimate": 3,
+        "details": {
+          "on": "hash",
+          "prefixes": "product:"
+        },
+        "fields": [
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "price",
+            "type": "numeric"
+          },
+          {
+            "name": "category",
+            "type": "tag"
+          }
+        ]
+      },
+      "observed_hash": "6afcbe6d4ae3",
+      "description": "Full-text and faceted search over product hashes."
+    },
+    {
+      "id": "ratelimit-hash-date",
+      "store": "cache",
+      "name": "ratelimit:{hash}:{date}",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "string",
+        "ttl": "none",
+        "estimate": 1,
+        "sample": 1,
+        "fields": []
+      },
+      "observed_hash": "f47a4c9f87d1",
+      "description": "Requests per API key per day."
+    },
+    {
+      "id": "config-feature-flags",
+      "store": "cache",
+      "name": "config:feature-flags",
+      "kind": "key-pattern",
+      "observed": {
+        "type": "string",
+        "ttl": "none",
+        "estimate": 1,
+        "sample": 1,
+        "fields": []
+      },
+      "observed_hash": "f47a4c9f87d1",
+      "description": "Feature flags, as one string."
+    },
+    {
+      "id": "reviews",
+      "store": "reviews-db",
+      "name": "reviews",
+      "kind": "collection",
+      "observed": {
+        "sample": 30,
+        "fields": [
+          {
+            "name": "_id",
+            "type": "objectId",
+            "presence": 1.0,
+            "key": "pk"
+          },
+          {
+            "name": "product_id",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "rating",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "author",
+            "type": "object",
+            "presence": 1.0
+          },
+          {
+            "name": "author.name",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "author.verified",
+            "type": "bool",
+            "presence": 1.0
+          },
+          {
+            "name": "tags",
+            "type": "array",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[]",
+            "type": "object | string",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[].label",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "created_at",
+            "type": "date",
+            "presence": 1.0
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "presence": 0.33
+          }
+        ],
+        "indexes": [
+          {
+            "name": "product_id_1_created_at_-1",
+            "fields": [
+              "product_id",
+              "created_at"
+            ],
+            "unique": false
+          },
+          {
+            "name": "body_text",
+            "fields": [
+              "body"
+            ],
+            "unique": false,
+            "method": "text"
+          }
+        ],
+        "estimate": 30,
+        "details": {
+          "validator": "$jsonSchema with 3 properties, required: product_id, rating"
+        }
+      },
+      "observed_hash": "ecf66db8d11f",
+      "description": "A customer's review of a product.",
+      "declared": {
+        "evidence": [
+          "app/reviews.py"
+        ],
+        "fields": [
+          {
+            "name": "_id"
+          },
+          {
+            "name": "product_id",
+            "type": "int"
+          },
+          {
+            "name": "rating",
+            "type": "int 1-5"
+          },
+          {
+            "name": "body",
+            "type": "str | None"
+          },
+          {
+            "name": "author"
+          },
+          {
+            "name": "created_at",
+            "type": "datetime"
+          }
+        ]
+      },
+      "field_descriptions": {
+        "body": "Optional free text",
+        "author.verified": "Bought the product"
+      }
+    },
+    {
+      "id": "recent-reviews",
+      "store": "reviews-db",
+      "name": "recent_reviews",
+      "kind": "view",
+      "observed": {
+        "sample": 30,
+        "fields": [
+          {
+            "name": "_id",
+            "type": "objectId",
+            "presence": 1.0,
+            "key": "pk"
+          },
+          {
+            "name": "product_id",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "rating",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "author",
+            "type": "object",
+            "presence": 1.0
+          },
+          {
+            "name": "author.name",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "author.verified",
+            "type": "bool",
+            "presence": 1.0
+          },
+          {
+            "name": "tags",
+            "type": "array",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[]",
+            "type": "object | string",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[].label",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "created_at",
+            "type": "date",
+            "presence": 1.0
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "presence": 0.33
+          }
+        ],
+        "indexes": []
+      },
+      "observed_hash": "e98da17d4e42",
+      "description": "Reviews, newest first."
+    },
+    {
+      "id": "events",
+      "store": "reviews-db",
+      "name": "events",
+      "kind": "collection",
+      "observed": {
+        "sample": 2,
+        "fields": [
+          {
+            "name": "_id",
+            "type": "objectId",
+            "presence": 1.0,
+            "key": "pk"
+          },
+          {
+            "name": "type",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "at",
+            "type": "date",
+            "presence": 1.0
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "presence": 0.5
+          },
+          {
+            "name": "order_id",
+            "type": "int",
+            "presence": 0.5
+          }
+        ],
+        "indexes": [],
+        "estimate": 2
+      },
+      "observed_hash": "e6a926f12b5b",
+      "description": "Clickstream: page views and checkouts."
+    },
+    {
+      "id": "order-placed",
+      "store": "event-payloads",
+      "name": "OrderPlaced",
+      "kind": "model",
+      "description": "Published when checkout completes.",
+      "declared": {
+        "evidence": [
+          "app/events.py"
+        ],
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "int"
+          },
+          {
+            "name": "user_id",
+            "type": "int"
+          },
+          {
+            "name": "total_cents",
+            "type": "int"
+          },
+          {
+            "name": "placed_at",
+            "type": "datetime"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invoice-payload",
+      "store": "event-payloads",
+      "name": "InvoicePayload",
+      "kind": "model",
+      "description": "The payment provider's invoice, as stored in billing.invoices.data.",
+      "declared": {
+        "evidence": [
+          "app/billing.py"
+        ],
+        "fields": [
+          {
+            "name": "provider",
+            "type": "str"
+          },
+          {
+            "name": "provider_invoice_id",
+            "type": "str"
+          },
+          {
+            "name": "amount_cents",
+            "type": "int"
+          },
+          {
+            "name": "paid_at",
+            "type": "datetime | None"
+          }
+        ]
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": "billing-invoices.order_id",
+      "to": "orders.id",
+      "kind": "fk"
+    },
+    {
+      "from": "order-items.order_id",
+      "to": "orders.id",
+      "kind": "fk",
+      "on_delete": "cascade"
+    },
+    {
+      "from": "orders.user_id",
+      "to": "users.id",
+      "kind": "fk"
+    },
+    {
+      "from": "session-id.user_id",
+      "to": "users.id",
+      "kind": "reference",
+      "evidence": [
+        "app/cache.py"
+      ]
+    },
+    {
+      "from": "cart-id.{id}",
+      "to": "users.id",
+      "kind": "reference",
+      "note": "The key's id is the user id",
+      "evidence": [
+        "app/cache.py"
+      ]
+    },
+    {
+      "from": "reviews.product_id",
+      "to": "product-id.{id}",
+      "kind": "inferred",
+      "note": "Same id space by convention; nothing enforces it"
+    },
+    {
+      "from": "events.order_id",
+      "to": "orders.id",
+      "kind": "inferred"
+    },
+    {
+      "from": "order-placed.order_id",
+      "to": "orders.id",
+      "kind": "reference",
+      "evidence": [
+        "app/events.py"
+      ]
+    },
+    {
+      "from": "billing-invoices.data",
+      "to": "invoice-payload",
+      "kind": "embedded",
+      "evidence": [
+        "app/billing.py"
+      ]
+    }
+  ]
+}

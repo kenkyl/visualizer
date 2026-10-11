@@ -1,0 +1,203 @@
+{
+  "generator": "visualizer",
+  "snapshot_version": 1,
+  "engine": "mongodb",
+  "store": "reviews-db",
+  "taken": "2026-10-11",
+  "server_version": "7.0.43",
+  "sampled": true,
+  "scope": {},
+  "entities": [
+    {
+      "name": "reviews",
+      "kind": "collection",
+      "observed": {
+        "sample": 30,
+        "fields": [
+          {
+            "name": "_id",
+            "type": "objectId",
+            "presence": 1.0,
+            "key": "pk"
+          },
+          {
+            "name": "product_id",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "rating",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "author",
+            "type": "object",
+            "presence": 1.0
+          },
+          {
+            "name": "author.name",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "author.verified",
+            "type": "bool",
+            "presence": 1.0
+          },
+          {
+            "name": "tags",
+            "type": "array",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[]",
+            "type": "object | string",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[].label",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "created_at",
+            "type": "date",
+            "presence": 1.0
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "presence": 0.33
+          }
+        ],
+        "indexes": [
+          {
+            "name": "product_id_1_created_at_-1",
+            "fields": [
+              "product_id",
+              "created_at"
+            ],
+            "unique": false
+          },
+          {
+            "name": "body_text",
+            "fields": [
+              "body"
+            ],
+            "unique": false,
+            "method": "text"
+          }
+        ],
+        "estimate": 30,
+        "details": {
+          "validator": "$jsonSchema with 3 properties, required: product_id, rating"
+        }
+      }
+    },
+    {
+      "name": "events",
+      "kind": "collection",
+      "observed": {
+        "sample": 2,
+        "fields": [
+          {
+            "name": "_id",
+            "type": "objectId",
+            "presence": 1.0,
+            "key": "pk"
+          },
+          {
+            "name": "type",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "at",
+            "type": "date",
+            "presence": 1.0
+          },
+          {
+            "name": "user_id",
+            "type": "int",
+            "presence": 0.5
+          },
+          {
+            "name": "order_id",
+            "type": "int",
+            "presence": 0.5
+          }
+        ],
+        "indexes": [],
+        "estimate": 2
+      }
+    },
+    {
+      "name": "recent_reviews",
+      "kind": "view",
+      "observed": {
+        "sample": 30,
+        "fields": [
+          {
+            "name": "_id",
+            "type": "objectId",
+            "presence": 1.0,
+            "key": "pk"
+          },
+          {
+            "name": "product_id",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "rating",
+            "type": "int",
+            "presence": 1.0
+          },
+          {
+            "name": "author",
+            "type": "object",
+            "presence": 1.0
+          },
+          {
+            "name": "author.name",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "author.verified",
+            "type": "bool",
+            "presence": 1.0
+          },
+          {
+            "name": "tags",
+            "type": "array",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[]",
+            "type": "object | string",
+            "presence": 1.0
+          },
+          {
+            "name": "tags[].label",
+            "type": "string",
+            "presence": 1.0
+          },
+          {
+            "name": "created_at",
+            "type": "date",
+            "presence": 1.0
+          },
+          {
+            "name": "body",
+            "type": "string",
+            "presence": 0.33
+          }
+        ],
+        "indexes": []
+      }
+    }
+  ],
+  "relationships": []
+}

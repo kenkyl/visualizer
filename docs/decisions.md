@@ -100,3 +100,76 @@ Deferred:
 - An automatic token inspector.
 
 On memes-agent's live fixture, `build` finds Keycloak as the authorization server, memes-mcp as the resource server and pytest as the client. It infers memes-mcp's unseen JWKS fetch. `OAUTH-ROPC`, `MCP-VERSION-FALLBACK` and `HOST-ALIAS` fire, and `TOKEN-LEAK-LLM` passes.
+
+## 2026-10-11: data-models skill
+
+`/visualizer:data-models` documents a project's data models as Markdown tables: stores, entities, fields, keys, indexes, relationships, and drift between code and database. It follows the architecture pattern. Claude annotates a JSON model, and a stdlib package (`lib/datamodels/`, launched by `scripts/datamodels.py`) introspects, merges, validates and renders it.
+
+**v1 sources:** Postgres, SQLite, MongoDB and Redis, plus `code` for models that exist only in code. MySQL/MariaDB was cut to keep the first build small. It's the first planned addition, behind the same source interface.
+
+**Deferred**, with `# EXTEND:` notes:
+
+- ER diagrams; v1 is tables only, as asked;
+- type-level drift;
+- a persisted change history;
+- the link to `architecture.json` datastores;
+- Redis streams, JSON paths, memory stats and Cluster;
+- Postgres check constraints and enums;
+- automated live-database tests.
+
+## 2026-10-11: data-model drivers through uv, not CLIs or stdlib protocols
+
+Live stores are read with their Python drivers (psycopg, pymongo, redis-py), run with `uv run --no-project --with <driver>`. `introspect` re-runs itself that way. uv caches the drivers on first use, nothing is installed into the project, and the architecture skill still needs only `python3`.
+
+**Rejected:**
+
+- **Native CLIs** (psql, mongosh, redis-cli): fragile output parsing, they're often not installed, and read-only is harder to guarantee.
+- **Stdlib wire-protocol clients:** Postgres SCRAM and TLS, and Mongo's BSON, would mean a lot of auth code to own. A stdlib Redis client remains possible later.
+
+**Rule:** drivers are imported only inside functions in `lib/datamodels/sources/`. A test checks that every module-level import in the package is stdlib.
+
+## 2026-10-11: read-only and value-free, enforced per source
+
+Each source enforces read-only itself instead of trusting the role it's given:
+
+- **Postgres:** `default_transaction_read_only`, `SET TRANSACTION READ ONLY`, and a rollback;
+- **SQLite:** `mode=ro` plus `query_only`;
+- **MongoDB and Redis,** which have no read-only session: method and command allowlists.
+
+Snapshots and models keep names, types, counts and ratios only. Mongo samples and Redis key names exist only in memory. Redis keys are clustered into patterns, and the patterns are all that's kept.
+
+Connections are named by environment variable. The script can read that one variable from a dotenv file, so Claude never opens `.env`. `check` rejects connection URLs anywhere in a model.
+
+## 2026-10-11: facts and annotations are owned separately
+
+`merge` writes the facts: `observed`, `observed_hash`, `snapshot` and `fk` relationships. Claude writes everything else. `check` recomputes `observed_hash`, so a hand edit to a fact fails, as authtrace's facts and narrative are kept apart.
+
+Refresh matches entities by (store, name), so ids and annotations survive. Unchanged relationships keep their place, so a refresh with no schema change leaves the file byte-identical.
+
+## 2026-10-11: datamodels reuses viz's helpers, one way
+
+datamodels imports viz for README markers, evidence checks, the secret lint and Markdown escaping, rather than copying them. viz never imports datamodels, and a test enforces that.
+
+Two small changes to `viz.py` made this possible:
+
+- `upsert_readme` takes a `marker`, so the `visualizer:data-models` block and the architecture block can share a README. Neither block is ever inserted inside the other.
+- The evidence loop moved into `check_evidence`.
+
+The architecture goldens are byte-identical.
+
+## 2026-10-11: what the data-models tables show, after a hand-written comparison
+
+A detailed, hand-written data-model doc (from another project) was compared with this skill's output. Some of what it covers was adopted in the default output, because each item is cheap and tells a reader something the field list can't:
+
+- foreign-key delete actions and CHECK constraints, from the catalog;
+- an `embedded` relationship, so a `jsonb` column points at the code model that defines its shape;
+- declared Redis types and TTLs, for keys that don't exist yet in a dev database;
+- an optional Durability column.
+
+Read and write paths ("when is this table written, by what") would be an opt-in annotation, written only when the user's notes ask for it. It's not built yet.
+
+**Not adopted:**
+
+- **Sample rows:** they break the no-values rule, and invented ones go stale.
+- **Architecture and sequence diagrams:** they belong to the architecture skill.
+- **A separate enum section:** enums go in declared types and field descriptions.

@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Auth flow trace
 
-**Preview.** This version only checks the machine. Capture, build, check and render land in milestones M1 to M4 of [the plan](../../docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). The procedure below is the contract those milestones build toward. Don't improvise a capture by hand in the meantime.
+**Preview.** This version checks the machine and captures Python processes (M2). Building a trace from a capture (M3), and the narrate, check and deliver steps (M4), aren't built yet; see [the plan](../../docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). The procedure below is the contract those milestones build toward. Don't improvise the missing steps by hand in the meantime.
 
 You explain the flow; `authtrace.py` does the mechanical parts. The core records *facts* (exchanges, decoded tokens, findings). You write only the `narrative` section, and you never edit a fact.
 
@@ -21,9 +21,14 @@ Notes from the user, if any: `$ARGUMENTS`
 
 ## Status (this version)
 
-1. Run `doctor` and show its output.
-2. Say that capture arrives in M2 (Python apps) and M5 (browser and proxy), and which of those this machine is ready for.
-3. Stop. If the notes are just `doctor`, step 1 is the whole job.
+1. Run `doctor` and show its output. If the notes are just `doctor`, that's the whole job.
+2. If the notes name a flow to capture, read the target's README and test setup to find the command (for example `uv run pytest -m live`). Ask once before running it: it may call paid APIs, and services it needs that aren't running stay down until the user starts them.
+3. Capture from the target's root:
+   ```
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py run -- <cmd>
+   ```
+   Use `--redaction strict` if the user will share the output. Never use `raw` unless they ask for it. For a browser flow, ask them to save a HAR (DevTools → Network → Save all as HAR), then run `authtrace.py import-har <file>`. Proxy and Playwright capture come in M5.
+4. Show the summary it prints (one line per exchange). Point out processes that made no HTTP calls, such as servers that were already running and so weren't captured. Say that building and rendering the trace comes in M3 and M4, and stop. Never read a capture made with `--redaction raw`: you work from redacted output only.
 
 ## Invariants
 

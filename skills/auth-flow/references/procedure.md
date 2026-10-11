@@ -15,7 +15,7 @@ Commands marked *(Mx)* don't exist yet. Until they do, the skill stops after `do
    - whether to publish a private artifact;
    - whether active probes are allowed (default no).
 3. **Preflight.** Health-check what the flow needs: the discovery URL returns 200, the resource server returns 401 with no token, and required env vars are set (by name only). Services that are already running aren't captured. Offer to restart them under capture, and warn when a registered `redirect_uri` pins their port.
-4. **Capture** *(M2, M5).* `authtrace.py run -- <cmd>`, plus the proxy or Playwright for a browser flow.
+4. **Capture** *(M2, M5).* `authtrace.py run -- <cmd>` writes redacted exchanges to `.authtrace/run-<time>/exchanges.jsonl` (with `.authtrace/.gitignore`, so `git status` stays unchanged). Add `import-har <file>` for a browser's front channel, and from M5 the proxy or Playwright.
 5. **Build facts** *(M3).* `authtrace.py build` → `trace.json`: exchanges, tokens, nodes by rule, findings.
 6. **Investigate.** Every non-2xx, every `inferred` node and every finding. Read the source, including installed libraries under `.venv/…/site-packages`, and add `checks` with file:line evidence. (This is how the memes-agent 400 on the first `POST /mcp` was explained: an unsupported protocol version, after the token had already been validated.)
 7. **Narrate.** Write the `narrative` section: steps, what crossed the wire and why, who checks what, invariants, OAuth roles, goal tags and a check-yourself question per step. Mark reconstructed steps as such.

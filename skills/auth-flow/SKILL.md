@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Auth flow trace
 
-**Preview.** This version only checks the machine. Capture, build, check and render land in milestones M1 to M4 of [the plan](../../docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). The procedure below is the contract those milestones build toward. Don't improvise a capture by hand in the meantime.
+**Preview.** This version checks the machine, captures Python processes (M2), and builds and renders a facts-only trace (M3). The narrate, check and deliver steps (M4) aren't built yet; see [the plan](../../docs/authtrace/PLAN.md#15-milestones-each-one-is-also-a-lesson). The procedure below is the contract those milestones build toward. Don't improvise the missing steps by hand in the meantime.
 
 You explain the flow; `authtrace.py` does the mechanical parts. The core records *facts* (exchanges, decoded tokens, findings). You write only the `narrative` section, and you never edit a fact.
 
@@ -21,9 +21,20 @@ Notes from the user, if any: `$ARGUMENTS`
 
 ## Status (this version)
 
-1. Run `doctor` and show its output.
-2. Say that capture arrives in M2 (Python apps) and M5 (browser and proxy), and which of those this machine is ready for.
-3. Stop. If the notes are just `doctor`, step 1 is the whole job.
+1. Run `doctor` and show its output. If the notes are just `doctor`, that's the whole job.
+2. If the notes name a flow to capture, read the target's README and test setup to find the command (for example `uv run pytest -m live`). Ask once before running it: it may call paid APIs, and services it needs that aren't running stay down until the user starts them.
+3. Capture from the target's root:
+   ```
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py run -- <cmd>
+   ```
+   Use `--redaction strict` if the user will share the output. Never use `raw` unless they ask for it. For a browser flow, ask them to save a HAR (DevTools → Network → Save all as HAR), then run `authtrace.py import-har <file>`. Proxy and Playwright capture come in M5.
+4. Show the summary it prints (one line per exchange). Point out processes that made no HTTP calls, such as servers that were already running and so weren't captured. Never read a capture made with `--redaction raw`: you work from redacted output only.
+5. Build and render, using the capture folder the summary named:
+   ```
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py build .authtrace/run-<time> --target <name>
+   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/authtrace.py render .authtrace/run-<time>/trace.json
+   ```
+   `build` prints the nodes and their inferred roles (each with its reason), any traffic that must exist but wasn't captured, and the findings. Relay those, and give the path to `flow.html`: a one-step-per-exchange tour of the facts. Say that the narrated tour (what each step means, who checks what, from the code) comes in M4, and stop.
 
 ## Invariants
 

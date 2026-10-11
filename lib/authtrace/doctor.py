@@ -69,11 +69,14 @@ def diagnose() -> dict:
 
     # EXTEND: add a mode here when a new capture mechanism lands (PLAN.md §5).
     modes = [
-        {"id": "core", "name": "decode, check, render", "milestone": "M1-M3", "built": False,
+        {"id": "render", "name": "render a trace (HTML viewer)", "milestone": "M1", "built": True,
+         "missing": [] if python_ok else [f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+"],
+         "note": "stdlib only"},
+        {"id": "core", "name": "build a trace, explain a token", "milestone": "M3", "built": True,
          "missing": [] if python_ok else [f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+"],
          "note": "stdlib only"},
         {"id": "hooks", "name": "capture a Python app (in-process hooks)", "milestone": "M2",
-         "built": False, "missing": [], "note": "runs in the target's own environment; nothing extra"},
+         "built": True, "missing": [], "note": "runs in the target's own environment; nothing extra"},
         {"id": "browser", "name": "capture a browser flow (Playwright)", "milestone": "M5",
          "built": False, "missing": browser_missing, "note": "uvx --with playwright"},
         {"id": "proxy", "name": "capture any language (forward proxy)", "milestone": "M5",

@@ -11,7 +11,15 @@ A Claude Code plugin that draws how systems fit together: architecture diagrams 
 
 Claude does the reasoning. [`scripts/viz.py`](scripts/viz.py), stdlib-only Python 3.9+, does the deterministic parts. It validates the model (ids, references, limits, evidence paths that must exist, a secret lint) and renders it the same way every time.
 
-**Status:** early development. First runs work. Updating an existing diagram, with an archive of the old one and a changelog, comes next.
+**Updating.** Run it again after the code changes. `viz.py status` lists what moved since the model was last reviewed, so Claude re-reads only that. Claude writes a candidate model, and `viz.py update` replaces the model with it:
+
+- the previous model and its page are kept under `archive/<date>-<sha>/`, next to `ARCHITECTURE.md`;
+- `architecture.changelog.md` gets an entry, newest first: the commits, Claude's summary of what changed and why, and what was added, removed or changed;
+- nothing is written if the candidate is invalid, the summary is missing, or a generated file was edited by hand.
+
+Components keep their ids, so a changelog reads "changed", not "removed and added". Bumping only the reviewed commit writes no archive and no entry.
+
+**Status:** early development. First runs and updates work. Retention for old archives, and a history link inside `ARCHITECTURE.md`, are next.
 
 ## Data models
 

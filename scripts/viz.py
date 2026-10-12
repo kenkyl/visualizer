@@ -7,6 +7,10 @@ Mermaid from it, so ids, styling and emit order stay stable between runs.
 
   viz.py check MODEL     validate the model against the schema and the repo
   viz.py render MODEL    write ARCHITECTURE.md and update the README block
+  viz.py status MODEL    what changed in the repo since the model was written
+  viz.py update MODEL NEXT
+                         replace the model with a candidate: archive the old
+                         version, add a changelog entry, then render
   viz.py preview FILE    write an HTML page that renders every diagram in a
                          model (or a Markdown file) in light and dark, using a
                          pinned Mermaid, for a visual check in a browser
@@ -17,6 +21,7 @@ Stdlib only, Python 3.9+.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -1294,6 +1299,462 @@ def preview_html(title: str, diagrams: list[tuple[str, str]], version: str = MER
 
 
 # ---------------------------------------------------------------------------
+# Update: what changed, the archive of the old version, and the changelog
+
+CHANGELOG_NAME = "architecture.changelog.md"
+ARCHIVE_DIR = "archive"
+CHANGELOG_HEADER = (
+    "# Architecture changelog\n\n"
+    "Changes to the architecture model, newest first. Written by `viz.py update`. "
+    f"The version each entry replaced is kept under [{ARCHIVE_DIR}/]({ARCHIVE_DIR}/).\n"
+)
+SUMMARY_LIMIT = 400
+# meta fields that say what the diagram contains. The sha, date and dirty fields are bookkeeping and never count.
+CONTENT_META = ("detail", "scope")  # EXTEND: readme placement and embed changes aren't logged yet
+
+
+def _keyed(items, key):
+    out = {}
+    for item in items or []:
+        if isinstance(item, dict):
+            out.setdefault(key(item), item)
+    return out
+
+
+def _field_changes(old: dict, new: dict, fields) -> list[tuple[str, object, object]]:
+    changes = []
+    for f in fields:
+        a, b = old.get(f), new.get(f)
+        if f == "inferred":
+            a, b = bool(a), bool(b)
+        if a != b:
+            changes.append((f, a, b))
+    return changes
+
+
+def diff_models(old: dict, new: dict):
+    """(changes, warnings) between two models.
+
+    Each change is {"area", "op" (added | removed | changed), "key", "name", "text", "fields"}, in a stable order.
+    Components and boundaries are matched by id and edges by (from, to, kind), so an id that never changes makes
+    a clean diff. Bookkeeping (model_sha, model_date, reviewed_sha, dirty) is ignored.
+    """
+    changes: list[dict] = []
+    warnings: list[str] = []
+
+    def add(area, op, key, name="", text="", fields=()):
+        changes.append({"area": area, "op": op, "key": key, "name": name, "text": text, "fields": list(fields)})
+
+    def compare(area, old_items, new_items, key, spec, name_of, text_of=None, fields_of=None):
+        a, b = _keyed(old_items, key), _keyed(new_items, key)
+        for k, item in b.items():
+            if k not in a:
+                add(area, "added", k, name_of(item), text_of(item) if text_of else "")
+        for k, item in a.items():
+            if k not in b:
+                add(area, "removed", k, name_of(item))
+        for k, item in b.items():
+            if k in a:
+                fields = _field_changes(a[k], item, fields_of or [f for f in SPECS[spec] if f != "id"])
+                if fields:
+                    add(area, "changed", k, name_of(item), fields=fields)
+
+    meta_old, meta_new = old.get("meta") or {}, new.get("meta") or {}
+    meta_fields = _field_changes(meta_old, meta_new, CONTENT_META)
+    if meta_fields:
+        add("meta", "changed", "meta", "Model settings", fields=meta_fields)
+
+    sys_fields = _field_changes(old.get("system") or {}, new.get("system") or {}, ("name", "summary", "highlights"))
+    if sys_fields:
+        add("system", "changed", "system", (new.get("system") or {}).get("name", ""), fields=sys_fields)
+
+    def note_key(n):
+        return (n.get("added"), n.get("text"))
+    compare("note", meta_old.get("notes"), meta_new.get("notes"), note_key, "note",
+            lambda n: f"added {n.get('added')}", lambda n: n.get("text", ""), fields_of=())
+
+    compare("boundary", old.get("boundaries"), new.get("boundaries"), lambda b: b.get("id"), "boundary",
+            lambda b: b.get("name", b.get("id", "")), lambda b: f"{b.get('kind')}")
+    compare("component", old.get("components"), new.get("components"), lambda c: c.get("id"), "component",
+            lambda c: c.get("name", c.get("id", "")), lambda c: c.get("responsibility", ""))
+    compare("edge", old.get("edges"), new.get("edges"), lambda e: (e.get("from"), e.get("to"), e.get("kind")),
+            "edge", lambda e: "", lambda e: e.get("label", ""), fields_of=("label", "step"))
+    compare("flow", old.get("flows"), new.get("flows"), lambda f: f.get("id"), "flow",
+            lambda f: f.get("name", f.get("id", "")), lambda f: f"{len(f.get('steps') or [])} steps")
+    compare("view", old.get("views"), new.get("views"), lambda v: v.get("id"), "view",
+            lambda v: v.get("title", v.get("id", "")))
+
+    for area, listing in (("components", "components"), ("boundaries", "boundaries")):
+        a = [i.get("id") for i in old.get(listing) or [] if isinstance(i, dict)]
+        b = [i.get("id") for i in new.get(listing) or [] if isinstance(i, dict)]
+        common_a = [i for i in a if i in set(b)]
+        common_b = [i for i in b if i in set(a)]
+        if common_a != common_b:
+            add("order", "changed", area, text=f"the order of {area} changed")
+
+    # EXTEND: on a rename, rewrite the references (edges, flows, views) instead of only warning
+    removed = {c["name"].strip().lower(): c["key"] for c in changes
+               if c["area"] == "component" and c["op"] == "removed"}
+    for c in changes:
+        if c["area"] == "component" and c["op"] == "added" and c["name"].strip().lower() in removed:
+            warnings.append(f"component '{c['key']}' has the name of removed '{removed[c['name'].strip().lower()]}': "
+                            "if it's the same thing, keep its id (ids never change)")
+    return changes, warnings
+
+
+def _show(value, limit: int = 70) -> str:
+    if value is None or value == "" or value == []:
+        return "none"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, list):
+        text = ", ".join(v if isinstance(v, str) else json.dumps(v, sort_keys=True) for v in value)
+    elif isinstance(value, dict):
+        text = json.dumps(value, sort_keys=True)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def _describe_change(old, new, limit: int = 160) -> str:
+    """How one field changed, short enough for a changelog line and never ambiguous."""
+    if isinstance(old, (list, type(None))) and isinstance(new, (list, type(None))):
+        a, b = old or [], new or []
+        gone = [x for x in a if x not in b]
+        came = [x for x in b if x not in a]
+        parts = []
+        if came:
+            parts.append("added " + ", ".join(_show(x, 160) for x in came))
+        if gone:
+            parts.append("removed " + ", ".join(_show(x, 160) for x in gone))
+        return "; ".join(parts) or "reordered"
+    if isinstance(old, str) and isinstance(new, str) and max(len(old), len(new)) > limit:
+        return "reworded"
+    return f"{_show(old, limit)} → {_show(new, limit)}"
+
+
+def _change_line(c: dict) -> str:
+    key, name = c["key"], c["name"]
+    if c["area"] == "edge":
+        who = f"`{key[0]}` → `{key[1]}` ({key[2]})"
+    elif c["area"] in ("component", "boundary", "flow", "view"):
+        who = f"**{md_text(name)}** (`{key}`)"
+    else:
+        who = md_text(name) if name else ""
+    verb = {"added": "Added", "removed": "Removed", "changed": "Changed"}[c["op"]]
+    if c["area"] in ("system", "meta"):
+        who = ""  # the group heading already says what changed
+    line = f"{verb} {who}".rstrip()
+    if c["op"] == "changed" and c["fields"]:
+        what = "; ".join(f"`{f}`: {md_text(_describe_change(a, b))}" for f, a, b in c["fields"])
+        line += (": " if who else " ") + what
+    elif c["op"] == "added" and c["text"]:
+        line += f": {md_text(_show(c['text'], 100))}"
+    elif c["op"] == "changed" and c["text"]:
+        line += f": {md_text(c['text'])}"
+    return line
+
+
+CHANGE_GROUPS = (("system", "System"), ("meta", "Settings"), ("boundary", "Boundaries"), ("component", "Components"),
+                 ("edge", "Edges"), ("flow", "Flows"), ("view", "Views"), ("note", "Notes"), ("order", "Order"))
+
+
+# EXTEND: link the changelog from ARCHITECTURE.md once a render may depend on files beside the model
+def format_changelog_entry(changes, summary: str, date: str, old_sha, new_sha, archive_name: str | None) -> str:
+    def short(sha):
+        return f"`{sha[:7]}`" if sha else "no commit"
+    out = [f"## {date} · {short(old_sha)} → {short(new_sha)}", "", md_text(summary), ""]
+    for area, title in CHANGE_GROUPS:
+        group = [c for c in changes if c["area"] == area]
+        if not group:
+            continue
+        out += [f"**{title}**", ""] + [f"- {_change_line(c)}" for c in group] + [""]
+    if archive_name:
+        out += [f"Previous version: [{ARCHIVE_DIR}/{archive_name}/]({_url(f'{ARCHIVE_DIR}/{archive_name}/')})", ""]
+    return "\n".join(out)
+
+
+def insert_changelog_entry(existing: str | None, entry: str) -> str:
+    """Put entry above the newest one, under the header. A missing file gets the header."""
+    if existing is None:
+        return CHANGELOG_HEADER + "\n" + entry
+    text = existing.replace("\r\n", "\n")
+    m = re.search(r"^## ", text, re.M)
+    if not m:
+        return text.rstrip("\n") + "\n\n" + entry
+    return text[:m.start()] + entry + "\n" + text[m.start():]
+
+
+def archive_dir_name(old_meta: dict, taken) -> str:
+    """'<model_date>-<sha7>' for the version being replaced, with -2, -3, ... if that folder already exists."""
+    date = old_meta.get("model_date") or "undated"
+    sha = (old_meta.get("model_sha") or "nosha")[:7]
+    base = f"{date}-{sha}"
+    name, n = base, 1
+    while name in taken:
+        n += 1
+        name = f"{base}-{n}"
+    return name
+
+
+def cmd_update(args) -> int:
+    model_path, next_path = Path(args.model), Path(args.next)
+    if not model_path.exists():
+        print(f"update: {model_path} not found. Use render for a first run", file=sys.stderr)
+        return 2
+    if next_path.resolve() == model_path.resolve():
+        print("update: NEXT must be a separate candidate file, not the model itself", file=sys.stderr)
+        return 2
+    old_text = model_path.read_text(encoding="utf-8")
+    new_text = next_path.read_text(encoding="utf-8") if next_path.exists() else None
+    if new_text is None:
+        print(f"update: {next_path} not found", file=sys.stderr)
+        return 2
+    try:
+        old = json.loads(old_text)
+        new = json.loads(new_text)
+    except json.JSONDecodeError as e:
+        print(f"update: not valid JSON: {e}", file=sys.stderr)
+        return 1
+    if not isinstance(old, dict):
+        print(f"update: {model_path} isn't a model", file=sys.stderr)
+        return 1
+
+    rep = Report()
+    validate(new, rep)
+    root = repo_root(model_path, args.root)
+    if rep.ok:
+        check_repo(new, root, rep)
+    if not rep.ok:
+        print_report(rep, False)
+        print("update: fix the candidate model first (viz.py check NEXT); nothing was written", file=sys.stderr)
+        return 1
+    for w in rep.warnings:
+        print(f"warning: {w}")
+
+    changes, warnings = diff_models(old, new)
+    for w in warnings:
+        print(f"warning: {w}")
+
+    summary = " ".join((args.summary or "").split())
+    if changes:
+        if not summary:
+            print("update: the model changed, so --summary is required: one or two sentences on what changed in "
+                  "the code and why. Nothing was written", file=sys.stderr)
+            return 2
+        if len(summary) > SUMMARY_LIMIT:
+            print(f"update: --summary is {len(summary)} characters; the limit is {SUMMARY_LIMIT}", file=sys.stderr)
+            return 2
+        for what, pattern in SECRET_PATTERNS:
+            if pattern.search(summary):
+                print(f"update: --summary looks like it contains {what}. Nothing was written", file=sys.stderr)
+                return 2
+
+    out_dir = Path(args.out).resolve() if args.out else model_path.resolve().parent
+    writes, notes, failure = plan_render(new, model_path, root, out_dir, args.force, False, False)
+    if failure:
+        for line in notes:
+            print(line)
+        print(failure[1], file=sys.stderr)
+        print("update: nothing was written", file=sys.stderr)
+        return failure[0]
+
+    model_abs = model_path.resolve()
+    if new_text != old_text:
+        writes.insert(0, (model_abs, new_text, "updated"))
+
+    if changes:
+        date = args.date or datetime.date.today().isoformat()
+        if not DATE_RE.match(date):
+            print("update: --date must be YYYY-MM-DD", file=sys.stderr)
+            return 2
+        archive_root = out_dir / ARCHIVE_DIR
+        # EXTEND: prune old archives here (a retention count or age) if they grow large
+        taken = {d.name for d in archive_root.iterdir()} if archive_root.is_dir() else set()
+        name = archive_dir_name(old.get("meta") or {}, taken)
+        archive_dir = archive_root / name
+        old_meta = old.get("meta") or {}
+        writes.append((archive_dir / model_abs.name, old_text, "archived"))
+        try:
+            archive_dir_rel = archive_dir.relative_to(root).as_posix()
+            old_md = architecture_md(old, f"{archive_dir_rel}/{model_abs.name}", archive_dir_rel)
+            writes.append((archive_dir / "ARCHITECTURE.md", old_md, "archived"))
+        except Exception:  # best effort: an old model that this version can't render still gets its JSON kept
+            notes.append(f"{ARCHIVE_DIR}/{name}: the old model couldn't be rendered; only its JSON was archived")
+        entry = format_changelog_entry(changes, summary, date, old_meta.get("model_sha"),
+                                       (new.get("meta") or {}).get("model_sha"), name)
+        log_path = out_dir / CHANGELOG_NAME
+        existing = log_path.read_text(encoding="utf-8") if log_path.exists() else None
+        writes.append((log_path, insert_changelog_entry(existing, entry),
+                       "updated" if existing is not None else "created"))
+    else:
+        notes.append("no change to the diagram's content: updated the model's bookkeeping only; "
+                     "no archive or changelog entry")
+
+    for line in notes:
+        print(line)
+    apply_writes(root, writes, args.dry_run)
+    return 0
+
+
+def _git(root: Path, *argv: str):
+    try:
+        out = subprocess.run(["git", "-C", str(root), *argv], capture_output=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return out.stdout.decode("utf-8", "replace")
+
+
+def _porcelain_paths(raw: str) -> list[str]:
+    """Paths from `git status --porcelain=v1 -z`; a rename or copy carries its source as an extra field."""
+    paths, fields = [], raw.split("\0")
+    i = 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if entry[0] in "RC" or entry[1] in "RC":
+            i += 1
+    return paths
+
+
+def changed_since(root: Path, base: str):
+    """(commits ahead, committed paths, uncommitted paths), repo-relative to root, or None if base is unknown."""
+    if _git(root, "cat-file", "-e", f"{base}^{{commit}}") is None:
+        return None
+    ahead = _git(root, "rev-list", "--count", f"{base}..HEAD")
+    committed = _git(root, "diff", "--relative", "--name-only", "-z", base, "HEAD")
+    top = git_toplevel(root)
+    status = _git(root, "status", "--porcelain=v1", "-z", "-uall")
+    if ahead is None or committed is None or status is None or top is None:
+        return None
+    prefix = ""
+    try:
+        rel = root.resolve().relative_to(top.resolve()).as_posix()
+        prefix = "" if rel == "." else rel + "/"
+    except ValueError:
+        pass
+    working = [p[len(prefix):] for p in _porcelain_paths(status) if p.startswith(prefix)]
+    return int(ahead.strip() or 0), [p for p in committed.split("\0") if p], working
+
+
+def _without_block(text: str, marker: str = MARKER) -> str:
+    """text with the visualizer block (markers included) removed, so only the author's own README remains."""
+    lines = text.replace("\r\n", "\n").splitlines(keepends=True)
+    starts, ends = _marker_lines(lines, *marker_res(marker))
+    if len(starts) == 1 and len(ends) == 1 and starts[0] < ends[0]:
+        lines = lines[:starts[0]] + lines[ends[0] + 1:]
+    # The inserter pads the block with blank lines, even where the README had none, so blank lines don't count.
+    return "\n".join(l.rstrip() for l in "".join(lines).splitlines() if l.strip())
+
+
+def readme_only_block_changed(root: Path, base: str, rel: str) -> bool:
+    """True if rel differs from the baseline only inside the visualizer block (which this tool writes itself)."""
+    old = _git(root, "show", f"{base}:{rel}")
+    path = root / rel
+    if old is None or not path.exists():
+        return False
+    new = path.read_bytes().decode("utf-8", "replace")
+    return _without_block(old) == _without_block(new)
+
+
+def touched_by(path: str, evidence_files) -> bool:
+    return any(path == f or path.startswith(f.rstrip("/") + "/") for f in evidence_files)
+
+
+STATUS_LIST_MAX = 25
+
+
+def _capped(items, n: int) -> str:
+    shown = ", ".join(items[:n])
+    return shown + (f", ... and {len(items) - n} more" if len(items) > n else "")
+
+
+def cmd_status(args) -> int:
+    model_path = Path(args.model)
+    model = load_model(model_path)
+    root = repo_root(model_path, args.root)
+    meta = model.get("meta") or {}
+    base = meta.get("reviewed_sha") or meta.get("model_sha")
+    result = {"model": model_path.name, "baseline": base, "head": None, "commits_ahead": None, "changed": [],
+              "components": {}, "uncited": [], "advice": ""}
+
+    head = _git(root, "rev-parse", "HEAD")
+    result["head"] = head.strip() if head else None
+    delta = None
+    if head is None:
+        result["advice"] = "not a git repository, so there's no baseline: run a full discovery"
+    elif not base:
+        result["advice"] = "the model isn't tied to a commit: run a full discovery"
+    else:
+        delta = changed_since(root, base)
+        if delta is None:
+            result["advice"] = f"baseline {base[:7]} isn't in this repository's history: run a full discovery"
+
+    if delta is not None:
+        ahead, committed, working = delta
+        scope = meta.get("scope") or "."
+        own_dir = model_path.resolve().parent
+        own = set()
+        try:
+            own_rel = own_dir.relative_to(root.resolve()).as_posix()
+            own = {f"{own_rel}/{n}" if own_rel != "." else n for n in (model_path.name, "ARCHITECTURE.md", CHANGELOG_NAME)}
+            archive_prefix = (f"{own_rel}/" if own_rel != "." else "") + ARCHIVE_DIR + "/"
+        except ValueError:
+            archive_prefix = ARCHIVE_DIR + "/"
+        changed = sorted({p for p in committed + working
+                          if p not in own and not p.startswith(archive_prefix)
+                          and (scope == "." or p == scope or p.startswith(scope.rstrip("/") + "/"))})
+        # The README block is this tool's own output: it isn't a code change.
+        readme = meta.get("readme") or {}
+        if readme.get("embed") and readme.get("path", "README.md") in changed:
+            if readme_only_block_changed(root, base, readme.get("path", "README.md")):
+                changed.remove(readme.get("path", "README.md"))
+        result.update(commits_ahead=ahead, changed=changed, uncommitted=sorted(set(working) & set(changed)))
+        cited = set()
+        for c in model.get("components") or []:
+            files = [_evidence_file(ev) for ev in c.get("evidence") or [] if isinstance(ev, str)]
+            hit = sorted({p for p in changed if touched_by(p, files)})
+            if hit:
+                result["components"][c.get("id")] = {"name": c.get("name"), "files": hit}
+                cited.update(hit)
+        all_files = [_evidence_file(ev) for c in model.get("components") or []
+                     for ev in c.get("evidence") or [] if isinstance(ev, str)]
+        result["uncited"] = [p for p in changed if p not in cited and not touched_by(p, all_files)]
+        if not changed:
+            result["advice"] = "nothing changed since the baseline: only bump reviewed_sha in the model"
+        elif result["components"]:
+            result["advice"] = "re-read the components whose evidence changed, then scan the uncited files"
+        else:
+            result["advice"] = "files changed but none are cited as evidence: scan them for new components"
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    print(f"model: {model_path.name}")
+    print(f"baseline: {base[:7] if base else 'none'}   head: {result['head'][:7] if result['head'] else 'none'}"
+          + (f"   {result['commits_ahead']} commits ahead" if result["commits_ahead"] is not None else ""))
+    if delta is not None:
+        print(f"changed since the baseline: {len(result['changed'])} files "
+              f"({len(result.get('uncommitted', []))} uncommitted)")
+        if result["components"]:
+            print("\ncomponents whose evidence changed:")
+            for cid, info in result["components"].items():
+                print(f"  {cid} ({info['name']}): {_capped(info['files'], 4)}")
+        if result["uncited"]:
+            print("\nchanged files no component cites (new components?):")
+            for p in result["uncited"][:STATUS_LIST_MAX]:
+                print(f"  {p}")
+            if len(result["uncited"]) > STATUS_LIST_MAX:
+                print(f"  ... and {len(result['uncited']) - STATUS_LIST_MAX} more (--json lists all)")
+    print(f"\n{result['advice']}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 
 
@@ -1334,25 +1795,20 @@ def cmd_check(args) -> int:
     return 0 if rep.ok else 1
 
 
-def cmd_render(args) -> int:
-    model_path = Path(args.model)
-    model = load_model(model_path)
-    rep = Report()
-    validate(model, rep)
-    if not rep.ok:
-        print_report(rep, False)
-        print("render: fix the model first (viz.py check)", file=sys.stderr)
-        return 1
+def plan_render(model: dict, model_path: Path, root: Path, out_dir: Path, force: bool = False,
+                readme_insert: bool = False, readme_create: bool = False):
+    """Work out what a render would write without writing it.
 
-    root = repo_root(model_path, args.root)
+    Returns (writes, notes, failure): writes is [(path, text, status)], notes are lines for stdout, and failure is
+    None or (exit code, message for stderr). Nothing is written when failure is set.
+    """
     model_abs = model_path.resolve()
-    out_dir = Path(args.out).resolve() if args.out else model_abs.parent
+    notes: list[str] = []
     try:
         model_rel = model_abs.relative_to(root).as_posix()
         out_rel = out_dir.relative_to(root).as_posix()
     except ValueError:
-        print(f"render: the model and output directory must be inside the repo root {root}", file=sys.stderr)
-        return 2
+        return [], notes, (2, f"render: the model and output directory must be inside the repo root {root}")
     out_rel = "" if out_rel == "." else out_rel
     arch_rel = f"{out_rel}/ARCHITECTURE.md" if out_rel else "ARCHITECTURE.md"
     writes: list[tuple[Path, str, str]] = []
@@ -1363,12 +1819,11 @@ def cmd_render(args) -> int:
         existing = arch_path.read_text(encoding="utf-8")
         state = generated_state(existing)
         if existing == arch:
-            print(f"{arch_rel}: unchanged")
-        elif state != "clean" and not args.force:
+            notes.append(f"{arch_rel}: unchanged")
+        elif state != "clean" and not force:
             why = "was edited by hand" if state == "edited" else "wasn't generated by visualizer"
-            print(f"render: {arch_rel} {why}. Fold the edits into the model, or use --force to overwrite",
-                  file=sys.stderr)
-            return 3
+            return writes, notes, (3, f"render: {arch_rel} {why}. Fold the edits into the model, "
+                                      "or use --force to overwrite")
         else:
             writes.append((arch_path, arch, "updated"))
     else:
@@ -1383,29 +1838,53 @@ def cmd_render(args) -> int:
         old = readme_path.read_bytes().decode("utf-8") if readme_path.exists() else None
         try:
             new, status = upsert_readme(
-                old, inner, model_rel, readme.get("placement", "after-intro"), insert=args.readme_insert,
-                create_title=model["system"]["name"] if args.readme_create else None, force=args.force)
+                old, inner, model_rel, readme.get("placement", "after-intro"), insert=readme_insert,
+                create_title=model["system"]["name"] if readme_create else None, force=force)
         except ReadmeError as e:
-            print(f"render: {readme_rel}: {e}", file=sys.stderr)
-            return 3
+            return writes, notes, (3, f"render: {readme_rel}: {e}")
         if status == "missing":
-            print(f"{readme_rel}: no visualizer markers; not changed (use --readme-insert to add the block)")
+            notes.append(f"{readme_rel}: no visualizer markers; not changed (use --readme-insert to add the block)")
         elif status == "no-readme":
-            print(f"{readme_rel}: doesn't exist; not created (use --readme-create)")
+            notes.append(f"{readme_rel}: doesn't exist; not created (use --readme-create)")
         elif status == "unchanged":
-            print(f"{readme_rel}: unchanged")
+            notes.append(f"{readme_rel}: unchanged")
         else:
             writes.append((readme_path, new, f"{status} block"))
+    return writes, notes, None
 
+
+def apply_writes(root: Path, writes, dry_run: bool = False) -> None:
     for path, text, status in writes:
         rel = path.relative_to(root).as_posix()
-        if args.dry_run:
+        if dry_run:
             print(f"{rel}: would be {status}")
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
         print(f"{rel}: {status}")
+
+
+def cmd_render(args) -> int:
+    model_path = Path(args.model)
+    model = load_model(model_path)
+    rep = Report()
+    validate(model, rep)
+    if not rep.ok:
+        print_report(rep, False)
+        print("render: fix the model first (viz.py check)", file=sys.stderr)
+        return 1
+
+    root = repo_root(model_path, args.root)
+    out_dir = Path(args.out).resolve() if args.out else model_path.resolve().parent
+    writes, notes, failure = plan_render(model, model_path, root, out_dir, args.force,
+                                         args.readme_insert, args.readme_create)
+    for line in notes:
+        print(line)
+    if failure:
+        print(failure[1], file=sys.stderr)
+        return failure[0]
+    apply_writes(root, writes, args.dry_run)
     return 0
 
 
@@ -1453,6 +1932,23 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true", help="overwrite hand edits in generated output")
     p.add_argument("--dry-run", action="store_true", help="say what would change without writing")
     p.set_defaults(func=cmd_render)
+
+    p = sub.add_parser("status", help="what changed in the repo since the model was written")
+    p.add_argument("model")
+    p.add_argument("--root", help="repo root (default: git top level)")
+    p.add_argument("--json", action="store_true", help="print the result as JSON")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("update", help="replace the model with a candidate, archive the old version, log the change")
+    p.add_argument("model", help="the current model")
+    p.add_argument("next", metavar="NEXT", help="the candidate model, kept outside the repo or at least out of git")
+    p.add_argument("--summary", help="one or two sentences on what changed and why (required if the diagram did)")
+    p.add_argument("--root", help="repo root (default: git top level)")
+    p.add_argument("--out", help="directory for ARCHITECTURE.md, the archive and the changelog (default: next to the model)")
+    p.add_argument("--force", action="store_true", help="overwrite hand edits in generated output")
+    p.add_argument("--dry-run", action="store_true", help="say what would change without writing")
+    p.add_argument("--date", help="date for the changelog entry, YYYY-MM-DD (default: today)")
+    p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("preview", help="write an HTML page that renders the diagrams in light and dark")
     p.add_argument("file", help="a model (.json) or a Markdown file with ```mermaid blocks")

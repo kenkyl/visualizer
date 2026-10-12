@@ -25,7 +25,7 @@ A full worked example is [`../examples/arcade-test.architecture.json`](../exampl
 
 `meta`, `system` and `components` are required; the rest default to empty. Unknown fields are errors, so a typo like `"respons"` fails loudly instead of vanishing.
 
-**Order matters.** The renderer emits boundaries and components in model order, and each boundary appears where its first component does. Put entry points and the people or clients who use the system first, then what they call, then outside services. In update mode, keep the existing order and add new entries next to related ones.
+**Order matters.** The renderer emits boundaries and components in model order, and each boundary appears where its first component does. Put entry points and the people or clients who use the system first, then what they call, then outside services. When updating, keep the existing order and add new entries next to related ones; `viz.py update` reports a reorder in the changelog.
 
 ## meta
 
@@ -69,7 +69,7 @@ A boundary with one component is fine when the trust line matters, such as a thi
 
 | Field | Rules |
 |---|---|
-| `id` | kebab-case (`a-z`, `0-9`, single hyphens), starting with a letter, at most 40 characters, unique. **Never rename an id once written**: ids keep diffs and changelogs readable. |
+| `id` | kebab-case (`a-z`, `0-9`, single hyphens), starting with a letter, at most 40 characters, unique. **Never rename an id once written**: `update` matches components, boundaries, flows and views by id (edges by from, to and kind), so a stable id is what makes the changelog say "changed" instead of "removed and added". |
 | `name` | Display name, at most about 32 characters (guidance). |
 | `kind` | See the table below. |
 | `boundary` | Optional boundary id. |
@@ -119,6 +119,17 @@ Steps are numbered automatically. Participants appear in the order they first ta
 Optional. With no views there is one overview of every component. A view is `{"id", "title", "include": [component ids], "direction": "TB"}`. `include` omitted means everything; `direction` is `TB` (default), `LR`, `RL` or `BT`. The first view is the one embedded in the README. Use extra views only when one diagram can't stay under the limits.
 
 **Limits per view:** `check` warns above 15 nodes or 25 edges, and fails above 25 nodes or 40 edges. Collapse siblings with `members`, or split into views.
+
+## Updates, archives and the changelog
+
+`viz.py update MODEL NEXT --summary "..."` replaces a model with a candidate and keeps the history next to it, in the output directory:
+
+| Path | Holds |
+|---|---|
+| `architecture.changelog.md` | One entry per update that changed the diagram, newest first: date, `old → new` commit, the summary, and what was added, removed or changed. |
+| `archive/<model_date>-<sha7>/` | The version each update replaced: its `architecture.json`, and its `ARCHITECTURE.md` rendered with links that work from there. `undated` and `nosha` stand in when `meta` has no date or SHA, and `-2`, `-3` ... mark repeats. |
+
+An update compares content only: `meta.model_sha`, `model_date`, `reviewed_sha` and `dirty` never count, so bumping `reviewed_sha` alone writes the model and creates no archive or entry. To go back to an archived version, copy its `architecture.json` over the model and render.
 
 ## Checks that read the repo
 

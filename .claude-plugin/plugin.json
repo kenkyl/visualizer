@@ -1,7 +1,7 @@
 {
   "name": "visualizer",
   "description": "Architecture diagrams that stay current, and (preview) traces of OAuth, OIDC and MCP-auth flows. Reads a repository, writes a small JSON model of its components, flows and state, and renders it as GitHub-native Mermaid in ARCHITECTURE.md and the README; later runs update the diagram and archive the old one. The data-models skill reads docs, migrations and read-only metadata from Postgres, SQLite, MongoDB and Redis into DATA_MODELS.md tables, and reports drift between code and database. authtrace captures a running system's identity traffic and renders it as an interactive step-through with a confidence label on every fact.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": {
     "name": "Kyle Kennedy"
   },

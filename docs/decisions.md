@@ -1,5 +1,28 @@
 # Decisions
 
+## 2026-10-12: architecture update mode, archive and changelog
+
+`/visualizer:architecture` used to refuse to touch an existing model, because an edit without an archive would lose the old version. It now updates, and the archive and changelog are written by the script, not by Claude.
+
+- **Candidate, then `update`.** Claude never edits the live model. It writes a candidate to a temp path, and `viz.py update MODEL NEXT --summary` validates it, plans the render, and only then writes: the archive, the changelog entry, the model and the rendered pages. A failure at any point (invalid candidate, missing summary, a hand-edited page, bad README markers) writes nothing, so the old version can't be lost half-way.
+- **`status` focuses discovery.** It compares `reviewed_sha` (else `model_sha`) with HEAD and the working tree, and maps changed files onto components through their evidence paths. Files no component cites are listed as candidates for new components. An unknown baseline recommends a full discovery rather than guessing. The README block is this tool's own output, so a README that differs from the baseline only inside the block (blank lines ignored) is not a change; tried on five real repos, where the inserted block alone made `status` report a code change. Text output caps file lists, since one real repo had 150 changed files.
+- **Diff by id.** Components, boundaries, flows and views match by id; edges by (from, to, kind). A removed and an added component with the same name draws a warning, since ids must not change. `model_sha`, `model_date`, `reviewed_sha` and `dirty` never count as change, so a bump of `reviewed_sha` alone writes no archive and no entry, matching its "not rendered" rule.
+- **What's archived.** The old `architecture.json` byte for byte, and its `ARCHITECTURE.md` re-rendered from it with the archive folder as the output directory. Copying the committed page would leave its evidence links broken one folder deeper. The re-render goes through the same function as every other page, so it carries a valid hash and `generated_state` calls it clean. If an old model no longer renders, only its JSON is archived, and the output says so.
+- **Folder names** are `<model_date>-<sha7>` of the version being replaced, so they say which version is inside. Repeats get `-2`, `-3`. Nothing is ever overwritten.
+- **The summary is required** whenever content changed, one line of at most 400 characters, run through the same secret patterns as the model. A changelog entry that lists fields but doesn't say why is the failure this guards against. Claude writes the why, the script writes the what.
+- **Long text is "reworded", lists are added/removed.** Truncating both sides of a long summary would make two different strings look equal, so the changelog shows a changed field in full up to 160 characters (a `responsibility` is at most 120) and says `reworded` beyond that, and shows added and removed items for lists such as `evidence`.
+- **`ARCHITECTURE.md` rendering didn't change,** so the golden is byte-identical. The page doesn't link to the changelog, because that would make a render depend on files beside the model. `cmd_render` was split into `plan_render` (pure) and `apply_writes`, which `update` reuses.
+- **`update` never inserts a missing README block.** The skill asks first, as it does on a re-render.
+- **Tested on real models.** `update` against copies of five repos with existing diagrams: each re-rendered byte-identically, so a bookkeeping-only update is safe on diagrams made by the earlier renderer. A headless `/visualizer:architecture` run on a copy of micro-agent-k followed the new procedure (status, candidate, update), caught a stale highlight, and left the original repo untouched.
+
+Deferred (`# EXTEND:` in `viz.py` where there's a home):
+
+- a history section or link in `ARCHITECTURE.md`;
+- pruning old archives;
+- renames that rewrite references (v1 only warns);
+- changelog entries for README placement and embed changes (`CONTENT_META`);
+- a `restore` command (an archive is a plain model: copy it back and render).
+
 ## 2026-10-10: authtrace lives in visualizer
 
 authtrace was planned as its own plugin and repo (`docs/authtrace/PLAN.md` §17, decision 5). It now ships inside visualizer as the `auth-flow` and `explain-token` skills.

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0 (2026-10-12)
+
+### Architecture
+
+- Update mode. Running `/visualizer:architecture` where a model already exists now brings the diagram up to date with the code, instead of only offering a re-render. Claude re-reads just what moved, writes a candidate model, and `viz.py update` does the rest.
+- `viz.py status MODEL`: what changed since the model was last reviewed (`--json` available). It lists changed files, the components whose evidence changed, and changed files no component cites. It says when the baseline is unknown, so a full discovery is the answer. It ignores the README block this tool wrote itself, and text output caps long file lists (`--json` has them all).
+- `viz.py update MODEL NEXT --summary "..."` replaces the model with a candidate:
+  - the old model and its page are kept under `<output dir>/archive/<date>-<sha>/`;
+  - `<output dir>/architecture.changelog.md` gets a new entry, newest first, with the commits, the summary and what was added, removed or changed;
+  - the model, `ARCHITECTURE.md` and the README block are then rendered;
+  - nothing is written when the candidate is invalid, the summary is missing, or a generated file was edited by hand (`--force` overrides the last, as with `render`).
+- Changes are matched by id, and bumping `reviewed_sha` alone writes no archive and no entry.
+- `render` is unchanged and its output is byte-identical; internally it is now `plan_render` and `apply_writes`.
+- Skill: a new "Updating an existing model" section, with the update step in the model-schema reference.
+- Tests: the diff, `update` end to end (archive, links, changelog stacking, no-change, summary, secret, invalid candidate, hand edit, README markers, dry run), `status` against real git repos, and a changelog golden.
+
 ## 0.4.0 (2026-10-11)
 
 ### Auth flows
